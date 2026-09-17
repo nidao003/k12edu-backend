@@ -81,7 +81,7 @@ func (h *Handler) Users(c *gin.Context) {
 }
 
 func (h *Handler) AIUsage(c *gin.Context) {
-	rows, e := h.db.Query(c, `SELECT model,COUNT(*),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0),COALESCE(SUM(p.cost_micros),0) FROM ai_usage u LEFT JOIN ai_policies p ON p.user_id=u.user_id AND p.period=TO_CHAR(u.created_at,'YYYY-MM') WHERE u.created_at>NOW()-INTERVAL '30 days' GROUP BY model ORDER BY COUNT(*) DESC`)
+	rows, e := h.db.Query(c, `SELECT model,COUNT(*),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0),COALESCE(SUM(cost_micros),0) FROM ai_usage WHERE created_at>NOW()-INTERVAL '30 days' GROUP BY model ORDER BY COUNT(*) DESC`)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
