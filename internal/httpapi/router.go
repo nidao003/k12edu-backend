@@ -59,8 +59,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 	}
 
-	r.StaticFile("/admin", "admin/index.html")
-	r.StaticFile("/admin/", "admin/index.html")
+	r.GET("/admin", func(c *gin.Context) { adminPage(c) })
+	r.GET("/admin/", func(c *gin.Context) { adminPage(c) })
 
 	return r
 }
