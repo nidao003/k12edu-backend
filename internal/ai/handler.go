@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -68,16 +69,60 @@ func (h *Handler) admit(c *gin.Context, uid uuid.UUID) bool {
 }
 func (h *Handler) safety(c *gin.Context, uid uuid.UUID, body []byte) bool {
 	lower := strings.ToLower(string(body))
-	for _, term := range []string{"自杀", "自残", "杀人", "色情", "炸弹", "信用卡号", "password"} {
+	for _, term := range []string{"自杀", "自残", "杀人", "色情", "炸弹", "信用卡号", "password", "ignore previous instructions", "忽略之前的指令", "reveal system prompt", "system prompt"} {
 		if strings.Contains(lower, term) {
 			sum := sha256.Sum256(body)
 			if h.db != nil {
-				_, _ = h.db.Exec(c, `INSERT INTO ai_safety_events(id,user_id,reason,content_hash) VALUES($1,$2,$3,$4)`, uuid.New(), uid, "blocked_keyword", fmt.Sprintf("%x", sum[:]))
+				severity := "high"
+				if strings.Contains(lower, "password") || strings.Contains(lower, "system prompt") {
+					severity = "critical"
+				}
+				_, _ = h.db.Exec(c, `INSERT INTO ai_safety_events(id,user_id,reason,content_hash,severity) VALUES($1,$2,$3,$4,$5)`, uuid.New(), uid, "policy_or_injection", fmt.Sprintf("%x", sum[:]), severity)
 			}
 			return false
 		}
 	}
 	return true
+}
+
+var piiPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}`),
+	regexp.MustCompile(`\b(?:\+?86[- ]?)?1[3-9]\d{9}\b`),
+	regexp.MustCompile(`\b(?:\d[ -]*?){13,19}\b`),
+}
+
+func redactPII(body []byte) []byte {
+	var walk func(any) any
+	walk = func(value any) any {
+		switch v := value.(type) {
+		case string:
+			for _, pattern := range piiPatterns {
+				v = pattern.ReplaceAllString(v, "[REDACTED]")
+			}
+			return v
+		case []any:
+			for i := range v {
+				v[i] = walk(v[i])
+			}
+			return v
+		case map[string]any:
+			for k := range v {
+				v[k] = walk(v[k])
+			}
+			return v
+		default:
+			return value
+		}
+	}
+	var value any
+	if json.Unmarshal(body, &value) != nil {
+		return body
+	}
+	clean, err := json.Marshal(walk(value))
+	if err != nil {
+		return body
+	}
+	return clean
 }
 
 func (h *Handler) allowed(user string) bool {
@@ -135,6 +180,7 @@ func (h *Handler) Chat(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid JSON"})
 		return
 	}
+	body = redactPII(body)
 	if !h.safety(c, uid, body) {
 		c.JSON(http.StatusForbidden, gin.H{"code": "AI_SAFETY_BLOCKED", "error": "request blocked by safety review"})
 		return
