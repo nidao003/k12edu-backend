@@ -25,6 +25,9 @@ func main() {
 			log.Fatal(err)
 		}
 		authService = auth.NewService(pool, cfg.JWTSecret)
+		if err := authService.BootstrapAdmin(ctx, cfg.AdminEmail, cfg.AdminPassword); err != nil {
+			log.Fatal(err)
+		}
 	}
 	log.Printf("k12edu backend listening on %s", cfg.Addr)
 	if err := httpapi.NewRouter(pool, authService, cfg.AIBaseURL, cfg.AIAPIKey).Run(cfg.Addr); err != nil {

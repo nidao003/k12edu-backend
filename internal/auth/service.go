@@ -27,6 +27,18 @@ type User struct {
 	Role        string    `json:"role"`
 }
 
+func (s *Service) BootstrapAdmin(ctx context.Context, email, password string) error {
+	if email == "" || password == "" {
+		return nil
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,'admin') ON CONFLICT(email) DO UPDATE SET role='admin', password_hash=EXCLUDED.password_hash, updated_at=NOW()`, uuid.New(), strings.ToLower(strings.TrimSpace(email)), string(hash), "系统管理员")
+	return err
+}
+
 func NewService(pool *pgxpool.Pool, secret string) *Service {
 	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour}
 }

@@ -9,6 +9,8 @@
 - Go + Gin API 入口
 - `/healthz` 和 `/api/v1/health` 健康检查
 - `/admin/` 管理后台页面壳
+
+管理员账号可通过 `K12EDU_ADMIN_EMAIL` 和 `K12EDU_ADMIN_PASSWORD` 在启动时初始化。开发环境可运行 `docker compose up --build`，然后访问 `/admin/`。
 - Dockerfile 和 Docker Compose
 
 ## 本地运行

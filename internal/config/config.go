@@ -3,11 +3,13 @@ package config
 import "os"
 
 type Config struct {
-	Addr        string
-	DatabaseURL string
-	JWTSecret   string
-	AIBaseURL   string
-	AIAPIKey    string
+	Addr          string
+	DatabaseURL   string
+	JWTSecret     string
+	AIBaseURL     string
+	AIAPIKey      string
+	AdminEmail    string
+	AdminPassword string
 }
 
 func Load() Config {
@@ -20,5 +22,5 @@ func Load() Config {
 	if secret == "" {
 		secret = "dev-only-change-me"
 	}
-	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret, AIBaseURL: os.Getenv("K12EDU_AI_BASE_URL"), AIAPIKey: os.Getenv("K12EDU_AI_API_KEY")}
+	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret, AIBaseURL: os.Getenv("K12EDU_AI_BASE_URL"), AIAPIKey: os.Getenv("K12EDU_AI_API_KEY"), AdminEmail: os.Getenv("K12EDU_ADMIN_EMAIL"), AdminPassword: os.Getenv("K12EDU_ADMIN_PASSWORD")}
 }

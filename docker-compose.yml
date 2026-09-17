@@ -1,7 +1,26 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: k12edu
+      POSTGRES_USER: k12edu
+      POSTGRES_PASSWORD: k12edu-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
   api:
     build: .
     ports:
       - "8080:8080"
     environment:
       K12EDU_ADDR: ":8080"
+      K12EDU_DATABASE_URL: postgres://k12edu:k12edu-dev@db:5432/k12edu?sslmode=disable
+      K12EDU_JWT_SECRET: local-development-secret-change-me
+      K12EDU_ADMIN_EMAIL: admin@example.com
+      K12EDU_ADMIN_PASSWORD: change-this-password
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
