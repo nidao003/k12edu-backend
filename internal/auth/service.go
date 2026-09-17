@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -185,6 +186,13 @@ func (s *Service) Parse(raw string) (uuid.UUID, string, error) {
 }
 
 func (s *Service) Refresh(raw string) (string, error) {
+	if s.db != nil {
+		sum := sha256.Sum256([]byte(raw))
+		var active bool
+		if err := s.db.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM auth_sessions WHERE refresh_token_hash=$1 AND revoked_at IS NULL AND expires_at>NOW())`, fmt.Sprintf("%x", sum[:])).Scan(&active); err == nil && !active {
+			return "", ErrInvalidCredentials
+		}
+	}
 	t, err := jwt.Parse(raw, func(t *jwt.Token) (any, error) {
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected signing method")
@@ -216,6 +224,18 @@ func (s *Service) Refresh(raw string) (string, error) {
 	}
 	a, _, err := s.tokens(u)
 	return a, err
+}
+
+func (s *Service) RevokeRefresh(ctx context.Context, raw string) error {
+	sum := sha256.Sum256([]byte(raw))
+	_, err := s.db.Exec(ctx, `UPDATE auth_sessions SET revoked_at=NOW() WHERE refresh_token_hash=$1`, fmt.Sprintf("%x", sum[:]))
+	return err
+}
+
+func (s *Service) RecordSession(ctx context.Context, userID uuid.UUID, refresh string) error {
+	sum := sha256.Sum256([]byte(refresh))
+	_, err := s.db.Exec(ctx, `INSERT INTO auth_sessions(id,user_id,refresh_token_hash,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '30 days') ON CONFLICT(refresh_token_hash) DO NOTHING`, uuid.New(), userID, fmt.Sprintf("%x", sum[:]))
+	return err
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {

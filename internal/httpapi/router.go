@@ -11,6 +11,7 @@ import (
 	"github.com/nidao003/k12edu-backend/internal/ai"
 	"github.com/nidao003/k12edu-backend/internal/auth"
 	"github.com/nidao003/k12edu-backend/internal/content"
+	"github.com/nidao003/k12edu-backend/internal/storage"
 	syncapi "github.com/nidao003/k12edu-backend/internal/sync"
 	"github.com/redis/go-redis/v9"
 )
@@ -18,6 +19,7 @@ import (
 func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string, rdb ...*redis.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(MetricsMiddleware())
 	r.Use(func(c *gin.Context) {
 		id := c.GetHeader("X-Request-ID")
 		if id == "" {
@@ -40,6 +42,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "k12edu-backend", "time": time.Now().UTC()})
 	})
+	r.GET("/metrics", Metrics)
+	r.StaticFile("/openapi.yaml", "openapi.yaml")
 
 	v1 := r.Group("/api/v1")
 	v1.GET("/health", func(c *gin.Context) {
@@ -52,10 +56,16 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		a.POST("/login", h.Login)
 		a.POST("/apple", h.Apple)
 		a.POST("/refresh", h.Refresh)
+		a.POST("/revoke", h.Revoke)
 		v1.GET("/me", h.RequireAuth(), h.Me)
 		v1.POST("/me/password", h.RequireAuth(), h.ChangePassword)
 		v1.GET("/me/export", h.RequireAuth(), h.Export)
 		v1.DELETE("/me", h.RequireAuth(), h.DeleteAccount)
+		if store, err := storage.NewLocal("./data/files"); err == nil {
+			files := storageHandler{store: store}
+			v1.POST("/me/files", h.RequireAuth(), files.Upload)
+			v1.GET("/files/:key", h.RequireAuth(), files.Download)
+		}
 		if pool != nil {
 			sh := syncapi.NewHandler(pool)
 			protected := v1.Group("/sync", h.RequireAuth())

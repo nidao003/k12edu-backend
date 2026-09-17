@@ -146,7 +146,13 @@ func (h *Handler) PutProgress(c *gin.Context) {
 	var version int64
 	err = h.db.QueryRow(c, `INSERT INTO learning_progress(user_id,payload,version) VALUES($1,$3,1) ON CONFLICT(user_id) DO UPDATE SET payload=EXCLUDED.payload,version=learning_progress.version+1,updated_at=NOW() WHERE $2=0 OR learning_progress.version=$2 RETURNING version`, uid, in.BaseVersion, in.Payload).Scan(&version)
 	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "progress version conflict", "code": "SYNC_CONFLICT"})
+		var current []byte
+		var currentVersion int64
+		if qerr := h.db.QueryRow(c, `SELECT payload,version FROM learning_progress WHERE user_id=$1`, uid).Scan(&current, &currentVersion); qerr != nil {
+			current = []byte(`{}`)
+			currentVersion = 0
+		}
+		c.JSON(http.StatusConflict, gin.H{"error": "progress version conflict", "code": "SYNC_CONFLICT", "current": gin.H{"payload": json.RawMessage(current), "version": currentVersion}})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"version": version, "updatedAt": time.Now().UTC()})

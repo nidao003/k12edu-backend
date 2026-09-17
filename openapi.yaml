@@ -1,0 +1,27 @@
+openapi: 3.0.3
+info:
+  title: K12Edu Backend API
+  version: 1.0.0
+servers:
+  - url: /
+paths:
+  /healthz:
+    get: { responses: { '200': { description: OK } } }
+  /api/v1/auth/apple:
+    post:
+      summary: Apple identity token login
+      requestBody: { required: true }
+      responses: { '200': { description: OK }, '401': { description: Invalid token } }
+  /api/v1/sync/merge:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Merge local and remote progress
+      responses: { '200': { description: Merged payload } }
+  /api/v1/ai/chat/completions:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Proxy an AI chat completion with quota and safety policy
+      responses: { '200': { description: Provider response } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

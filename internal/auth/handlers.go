@@ -28,6 +28,7 @@ func (h *Handler) Register(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "email already registered or invalid credentials"})
 		return
 	}
+	_ = h.service.RecordSession(c, u.ID, r)
 	c.JSON(http.StatusCreated, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
 func (h *Handler) Login(c *gin.Context) {
@@ -41,6 +42,7 @@ func (h *Handler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
+	_ = h.service.RecordSession(c, u.ID, r)
 	c.JSON(http.StatusOK, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
 func (h *Handler) Apple(c *gin.Context) {
@@ -57,6 +59,7 @@ func (h *Handler) Apple(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "invalid Apple identity token"})
 		return
 	}
+	_ = h.service.RecordSession(c, u.ID, r)
 	c.JSON(200, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
 func (h *Handler) Refresh(c *gin.Context) {
@@ -73,6 +76,20 @@ func (h *Handler) Refresh(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"accessToken": token})
+}
+func (h *Handler) Revoke(c *gin.Context) {
+	var in struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	if c.ShouldBindJSON(&in) != nil || in.RefreshToken == "" {
+		c.JSON(400, gin.H{"error": "refreshToken is required"})
+		return
+	}
+	if h.service.RevokeRefresh(c, in.RefreshToken) != nil {
+		c.JSON(500, gin.H{"error": "revoke failed"})
+		return
+	}
+	c.Status(204)
 }
 func (h *Handler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": gin.H{"id": c.GetString("userID"), "role": c.GetString("role")}})
@@ -108,6 +125,7 @@ func (h *Handler) DeleteAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete account failed"})
 		return
 	}
+	_, _ = h.service.db.Exec(c, `UPDATE auth_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL`, id)
 	c.Status(http.StatusNoContent)
 }
 func (h *Handler) RequireAuth() gin.HandlerFunc {
