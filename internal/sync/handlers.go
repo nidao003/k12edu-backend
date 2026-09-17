@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,6 +25,68 @@ type eventInput struct {
 	EventType       string          `json:"eventType" binding:"required"`
 	Payload         json.RawMessage `json:"payload"`
 	ClientCreatedAt time.Time       `json:"clientCreatedAt"`
+}
+type deviceInput struct {
+	ID       string `json:"id"`
+	Platform string `json:"platform" binding:"required"`
+	Name     string `json:"name"`
+}
+
+func (h *Handler) RegisterDevice(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	var in deviceInput
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": "invalid device"})
+		return
+	}
+	id, e := uuid.Parse(in.ID)
+	if e != nil {
+		id = uuid.New()
+	}
+	_, e = h.db.Exec(c, `INSERT INTO devices(id,user_id,platform,name) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET user_id=$2,platform=$3,name=$4,last_seen_at=NOW()`, id, uid, in.Platform, in.Name)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "device registration failed"})
+		return
+	}
+	c.JSON(200, gin.H{"deviceId": id})
+}
+
+func (h *Handler) Events(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	after := c.Query("after")
+	var rows pgx.Rows
+	if after == "" {
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 ORDER BY created_at LIMIT 500`, uid)
+	} else {
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND created_at>$2::timestamptz ORDER BY created_at LIMIT 500`, uid, after)
+	}
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := make([]gin.H, 0)
+	for rows.Next() {
+		var id uuid.UUID
+		var device *uuid.UUID
+		var typ string
+		var payload []byte
+		var client, created time.Time
+		if err := rows.Scan(&id, &device, &typ, &payload, &client, &created); err != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created})
+	}
+	c.JSON(200, gin.H{"events": out})
 }
 
 func (h *Handler) GetProgress(c *gin.Context) {

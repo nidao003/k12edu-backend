@@ -39,6 +39,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.GET("/progress", sh.GetProgress)
 			protected.PUT("/progress", sh.PutProgress)
 			protected.POST("/events", sh.AppendEvents)
+			protected.POST("/devices", sh.RegisterDevice)
+			protected.GET("/events", sh.Events)
 		}
 		if pool != nil {
 			ch := content.NewHandler(pool)
