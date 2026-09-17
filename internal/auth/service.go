@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -28,6 +29,9 @@ type Service struct {
 	accessTTL, refreshTTL time.Duration
 	appleClientID         string
 	mailer                func(string, string, string) error
+	appleKeys             map[string]*rsa.PublicKey
+	appleKeysAt           time.Time
+	appleMu               sync.Mutex
 }
 type User struct {
 	ID          uuid.UUID `json:"id"`
@@ -53,7 +57,53 @@ func NewService(pool *pgxpool.Pool, secret string, appleClientID ...string) *Ser
 	if len(appleClientID) > 0 {
 		id = appleClientID[0]
 	}
-	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour, appleClientID: id}
+	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour, appleClientID: id, appleKeys: map[string]*rsa.PublicKey{}}
+}
+
+func (s *Service) appleKey(kid string) (*rsa.PublicKey, error) {
+	s.appleMu.Lock()
+	defer s.appleMu.Unlock()
+	if key, ok := s.appleKeys[kid]; ok && time.Since(s.appleKeysAt) < time.Hour {
+		return key, nil
+	}
+	resp, e := http.Get("https://appleid.apple.com/auth/keys")
+	if e != nil {
+		return nil, e
+	}
+	defer resp.Body.Close()
+	var keys struct {
+		Keys []struct {
+			Kid string   `json:"kid"`
+			X5c []string `json:"x5c"`
+		} `json:"keys"`
+	}
+	if e = json.NewDecoder(resp.Body).Decode(&keys); e != nil {
+		return nil, e
+	}
+	next := map[string]*rsa.PublicKey{}
+	for _, k := range keys.Keys {
+		if len(k.X5c) == 0 {
+			continue
+		}
+		b, e := base64.StdEncoding.DecodeString(k.X5c[0])
+		if e != nil {
+			continue
+		}
+		cert, e := x509.ParseCertificate(b)
+		if e == nil {
+			if pub, ok := cert.PublicKey.(*rsa.PublicKey); ok {
+				next[k.Kid] = pub
+			}
+		}
+	}
+	for key, value := range next {
+		s.appleKeys[key] = value
+	}
+	s.appleKeysAt = time.Now()
+	if key := s.appleKeys[kid]; key != nil {
+		return key, nil
+	}
+	return nil, fmt.Errorf("apple key not found")
 }
 
 func (s *Service) AppleLogin(ctx context.Context, identityToken, name, nonce string) (User, string, string, error) {
@@ -64,42 +114,20 @@ func (s *Service) AppleLogin(ctx context.Context, identityToken, name, nonce str
 		if t.Method.Alg() != "RS256" {
 			return nil, errors.New("invalid apple algorithm")
 		}
-		resp, e := http.Get("https://appleid.apple.com/auth/keys")
-		if e != nil {
-			return nil, e
-		}
-		defer resp.Body.Close()
-		var keys struct {
-			Keys []struct {
-				Kid string   `json:"kid"`
-				X5c []string `json:"x5c"`
-			} `json:"keys"`
-		}
-		if e = json.NewDecoder(resp.Body).Decode(&keys); e != nil {
-			return nil, e
-		}
-		for _, k := range keys.Keys {
-			if k.Kid == t.Header["kid"] && len(k.X5c) > 0 {
-				b, e := base64.StdEncoding.DecodeString(k.X5c[0])
-				if e != nil {
-					return nil, e
-				}
-				cert, e := x509.ParseCertificate(b)
-				if e != nil {
-					return nil, e
-				}
-				if key, ok := cert.PublicKey.(*rsa.PublicKey); ok {
-					return key, nil
-				}
-			}
-		}
-		return nil, fmt.Errorf("apple key not found")
+		kid, _ := t.Header["kid"].(string)
+		return s.appleKey(kid)
 	})
 	if err != nil || !parsed.Valid {
 		return User{}, "", "", ErrInvalidCredentials
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok || claims["iss"] != "https://appleid.apple.com" || claims["aud"] != s.appleClientID {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	if exp, ok := claims["exp"].(float64); !ok || time.Now().Unix() >= int64(exp) {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	if iat, ok := claims["iat"].(float64); !ok || time.Now().Add(10*time.Minute).Unix() < int64(iat) {
 		return User{}, "", "", ErrInvalidCredentials
 	}
 	if nonce == "" {
