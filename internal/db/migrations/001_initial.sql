@@ -37,3 +37,10 @@ CREATE TABLE IF NOT EXISTS sync_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sync_events_user_created ON sync_events(user_id, created_at);
+CREATE TABLE IF NOT EXISTS ai_usage (
+ id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ model TEXT NOT NULL DEFAULT '', provider_status INT NOT NULL,
+ input_bytes INT NOT NULL DEFAULT 0, output_bytes INT NOT NULL DEFAULT 0,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage(user_id, created_at);

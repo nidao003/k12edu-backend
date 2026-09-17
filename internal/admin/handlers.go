@@ -21,6 +21,7 @@ func RequireAdmin() gin.HandlerFunc {
 func (h *Handler) Stats(c *gin.Context) {
 	var users int64
 	var active int64
+	var aiCalls int64
 	if e := h.db.QueryRow(c, `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`).Scan(&users); e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -29,7 +30,11 @@ func (h *Handler) Stats(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
 	}
-	c.JSON(200, gin.H{"users": users, "activeUsers24h": active})
+	if e := h.db.QueryRow(c, `SELECT COUNT(*) FROM ai_usage WHERE created_at > NOW()-INTERVAL '24 hours'`).Scan(&aiCalls); e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	c.JSON(200, gin.H{"users": users, "activeUsers24h": active, "aiCalls24h": aiCalls})
 }
 func (h *Handler) Users(c *gin.Context) {
 	rows, e := h.db.Query(c, `SELECT id,email,display_name,role,created_at FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`)
