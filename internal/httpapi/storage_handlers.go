@@ -68,7 +68,7 @@ func (h storageHandler) List(c *gin.Context) {
 		c.Status(401)
 		return
 	}
-	rows, e := h.db.Query(c, `SELECT id,name,size_bytes,content_type,created_at FROM user_files WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, uid)
+	rows, e := h.db.Query(c, `SELECT id,name,size_bytes,content_type,safety_status,created_at FROM user_files WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, uid)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -76,14 +76,14 @@ func (h storageHandler) List(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var id, name, typ string
+		var id, name, typ, safetyStatus string
 		var size int64
 		var created any
-		if e := rows.Scan(&id, &name, &size, &typ, &created); e != nil {
+		if e := rows.Scan(&id, &name, &size, &typ, &safetyStatus, &created); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "name": name, "size": size, "contentType": typ, "createdAt": created})
+		out = append(out, gin.H{"id": id, "name": name, "size": size, "contentType": typ, "safetyStatus": safetyStatus, "createdAt": created})
 	}
 	c.JSON(200, gin.H{"items": out})
 }
@@ -93,9 +93,13 @@ func (h storageHandler) Download(c *gin.Context) {
 		c.Status(401)
 		return
 	}
-	var key, typ string
-	if e = h.db.QueryRow(c, `SELECT storage_key,content_type FROM user_files WHERE id=$1 AND user_id=$2`, c.Param("id"), uid).Scan(&key, &typ); e != nil {
+	var key, typ, safetyStatus string
+	if e = h.db.QueryRow(c, `SELECT storage_key,content_type,safety_status FROM user_files WHERE id=$1 AND user_id=$2`, c.Param("id"), uid).Scan(&key, &typ, &safetyStatus); e != nil {
 		c.Status(404)
+		return
+	}
+	if safetyStatus != "approved" {
+		Error(c, http.StatusForbidden, "FILE_PENDING_REVIEW", "file is pending safety review")
 		return
 	}
 	r, err := h.store.Open(c, key)

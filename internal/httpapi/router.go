@@ -129,6 +129,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.GET("/ai-usage", ah.AIUsage)
 			adminRoutes.GET("/ai-billing", ah.AIBilling)
 			adminRoutes.GET("/ai-safety-events", ah.AISafetyEvents)
+			adminRoutes.GET("/file-safety", ah.FileSafety)
 			adminRoutes.GET("/audit-logs", ah.AuditLogs)
 			adminRoutes.GET("/ai-plans", ah.Plans)
 			adminWrite.POST("/ai-plans", ah.UpsertPlan)
@@ -138,6 +139,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminWrite.PATCH("/users/:id/role", ah.SetRole)
 			adminWrite.PATCH("/users/:id/disabled", ah.SetDisabled)
 			adminWrite.PATCH("/users/:id/minor-mode", ah.SetMinorMode)
+			adminWrite.PATCH("/file-safety/:id", ah.ReviewFile)
 			adminWrite.PATCH("/users/:id/permission", ah.GrantPermission)
 			adminWrite.DELETE("/users/:id/permission", ah.RevokePermission)
 		}

@@ -97,6 +97,47 @@ func (h *Handler) SetMinorMode(c *gin.Context) {
 	h.audit(c, "user.minor_mode.update", uid.String(), c.GetString("userID"))
 	c.Status(204)
 }
+
+func (h *Handler) FileSafety(c *gin.Context) {
+	rows, err := h.db.Query(c, `SELECT id,user_id,name,content_type,size_bytes,safety_status,created_at FROM user_files WHERE safety_status<>'approved' ORDER BY created_at DESC LIMIT 500`)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id, uid, name, typ, status string
+		var size int64
+		var created any
+		if rows.Scan(&id, &uid, &name, &typ, &size, &status, &created) == nil {
+			out = append(out, gin.H{"id": id, "userId": uid, "name": name, "contentType": typ, "size": size, "status": status, "createdAt": created})
+		}
+	}
+	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) ReviewFile(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid file id"})
+		return
+	}
+	var in struct {
+		Status string `json:"status"`
+	}
+	if c.ShouldBindJSON(&in) != nil || (in.Status != "approved" && in.Status != "rejected") {
+		c.JSON(400, gin.H{"error": "status must be approved or rejected"})
+		return
+	}
+	tag, err := h.db.Exec(c, `UPDATE user_files SET safety_status=$2 WHERE id=$1`, id, in.Status)
+	if err != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "file not found"})
+		return
+	}
+	h.audit(c, "file.safety.review", id.String(), c.GetString("userID"))
+	c.Status(204)
+}
 func (h *Handler) Stats(c *gin.Context) {
 	var users int64
 	var active int64
