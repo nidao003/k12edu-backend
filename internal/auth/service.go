@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nidao003/k12edu-backend/internal/storage"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -32,7 +33,11 @@ type Service struct {
 	appleKeys             map[string]*rsa.PublicKey
 	appleKeysAt           time.Time
 	appleMu               sync.Mutex
+	store                 storage.Store
 }
+
+func (s *Service) SetStore(store storage.Store) { s.store = store }
+
 type User struct {
 	ID          uuid.UUID `json:"id"`
 	Email       string    `json:"email"`
@@ -359,6 +364,18 @@ func (s *Service) Export(ctx context.Context, id uuid.UUID) (User, error) {
 }
 
 func (s *Service) HardDelete(ctx context.Context, id uuid.UUID) error {
+	if s.store != nil {
+		rows, err := s.db.Query(ctx, `SELECT storage_key FROM user_files WHERE user_id=$1`, id)
+		if err == nil {
+			for rows.Next() {
+				var key string
+				if rows.Scan(&key) == nil {
+					_ = s.store.Delete(ctx, key)
+				}
+			}
+			rows.Close()
+		}
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err

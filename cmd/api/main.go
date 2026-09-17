@@ -11,6 +11,7 @@ import (
 	"github.com/nidao003/k12edu-backend/internal/db"
 	"github.com/nidao003/k12edu-backend/internal/httpapi"
 	"github.com/nidao003/k12edu-backend/internal/mail"
+	"github.com/nidao003/k12edu-backend/internal/storage"
 )
 
 func main() {
@@ -38,6 +39,9 @@ func main() {
 		}
 		db.StartMaintenance(context.Background(), pool, cfg.RetentionDays)
 		authService = auth.NewService(pool, cfg.JWTSecret, cfg.AppleClientID)
+		if store, storeErr := storage.NewConfigured(); storeErr == nil {
+			authService.SetStore(store)
+		}
 		mailer := mail.Sender{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom}
 		authService.SetMailer(mailer.Send)
 		if err := authService.BootstrapAdmin(ctx, cfg.AdminEmail, cfg.AdminPassword); err != nil {
