@@ -2,7 +2,13 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -19,6 +25,7 @@ type Service struct {
 	db                    *pgxpool.Pool
 	secret                []byte
 	accessTTL, refreshTTL time.Duration
+	appleClientID         string
 }
 type User struct {
 	ID          uuid.UUID `json:"id"`
@@ -39,8 +46,78 @@ func (s *Service) BootstrapAdmin(ctx context.Context, email, password string) er
 	return err
 }
 
-func NewService(pool *pgxpool.Pool, secret string) *Service {
-	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour}
+func NewService(pool *pgxpool.Pool, secret string, appleClientID ...string) *Service {
+	id := ""
+	if len(appleClientID) > 0 {
+		id = appleClientID[0]
+	}
+	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour, appleClientID: id}
+}
+
+func (s *Service) AppleLogin(ctx context.Context, identityToken, name string) (User, string, string, error) {
+	if s.appleClientID == "" {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	parsed, err := jwt.Parse(identityToken, func(t *jwt.Token) (any, error) {
+		if t.Method.Alg() != "RS256" {
+			return nil, errors.New("invalid apple algorithm")
+		}
+		resp, e := http.Get("https://appleid.apple.com/auth/keys")
+		if e != nil {
+			return nil, e
+		}
+		defer resp.Body.Close()
+		var keys struct {
+			Keys []struct {
+				Kid string   `json:"kid"`
+				X5c []string `json:"x5c"`
+			} `json:"keys"`
+		}
+		if e = json.NewDecoder(resp.Body).Decode(&keys); e != nil {
+			return nil, e
+		}
+		for _, k := range keys.Keys {
+			if k.Kid == t.Header["kid"] && len(k.X5c) > 0 {
+				b, e := base64.StdEncoding.DecodeString(k.X5c[0])
+				if e != nil {
+					return nil, e
+				}
+				cert, e := x509.ParseCertificate(b)
+				if e != nil {
+					return nil, e
+				}
+				if key, ok := cert.PublicKey.(*rsa.PublicKey); ok {
+					return key, nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("apple key not found")
+	})
+	if err != nil || !parsed.Valid {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok || claims["iss"] != "https://appleid.apple.com" || claims["aud"] != s.appleClientID {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	var u User
+	err = s.db.QueryRow(ctx, `SELECT id,COALESCE(email,''),COALESCE(display_name,''),role FROM users WHERE apple_subject=$1 AND deleted_at IS NULL`, sub).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		u = User{ID: uuid.New(), DisplayName: strings.TrimSpace(name), Role: "student"}
+		if email, _ := claims["email"].(string); email != "" {
+			u.Email = email
+		}
+		_, err = s.db.Exec(ctx, `INSERT INTO users(id,email,display_name,role,apple_subject) VALUES($1,NULLIF($2,''),$3,$4,$5)`, u.ID, u.Email, u.DisplayName, u.Role, sub)
+	}
+	if err != nil {
+		return User{}, "", "", err
+	}
+	a, r, e := s.tokens(u)
+	return u, a, r, e
 }
 func (s *Service) Register(ctx context.Context, email, password, name string) (User, string, string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))

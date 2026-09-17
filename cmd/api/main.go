@@ -32,7 +32,7 @@ func main() {
 		if err := db.Migrate(ctx, pool); err != nil {
 			log.Fatal(err)
 		}
-		authService = auth.NewService(pool, cfg.JWTSecret)
+		authService = auth.NewService(pool, cfg.JWTSecret, cfg.AppleClientID)
 		if err := authService.BootstrapAdmin(ctx, cfg.AdminEmail, cfg.AdminPassword); err != nil {
 			log.Fatal(err)
 		}

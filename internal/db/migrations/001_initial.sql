@@ -50,3 +50,6 @@ CREATE TABLE IF NOT EXISTS content_items (
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(kind, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_content_items_kind_published ON content_items(kind, published);
+CREATE TABLE IF NOT EXISTS ai_policies (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,period TEXT NOT NULL,request_count INT NOT NULL DEFAULT 0,input_tokens INT NOT NULL DEFAULT 0,output_tokens INT NOT NULL DEFAULT 0,cost_micros BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,period));
+CREATE TABLE IF NOT EXISTS ai_safety_events (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,reason TEXT NOT NULL,content_hash TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX IF NOT EXISTS idx_ai_policies_period ON ai_policies(period);

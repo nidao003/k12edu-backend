@@ -31,6 +31,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		a := v1.Group("/auth")
 		a.POST("/register", h.Register)
 		a.POST("/login", h.Login)
+		a.POST("/apple", h.Apple)
 		a.POST("/refresh", h.Refresh)
 		v1.GET("/me", h.RequireAuth(), h.Me)
 		v1.DELETE("/me", h.RequireAuth(), h.DeleteAccount)
@@ -39,6 +40,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected := v1.Group("/sync", h.RequireAuth())
 			protected.GET("/progress", sh.GetProgress)
 			protected.PUT("/progress", sh.PutProgress)
+			protected.POST("/merge", sh.Merge)
 			protected.POST("/events", sh.AppendEvents)
 			protected.POST("/devices", sh.RegisterDevice)
 			protected.GET("/events", sh.Events)
@@ -61,7 +63,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.PATCH("/users/:id/role", ah.SetRole)
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
 		}
-		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, rdb...)
+		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, 500, 100, 300, rdb...)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 	}
 

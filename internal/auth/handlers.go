@@ -43,6 +43,22 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
+func (h *Handler) Apple(c *gin.Context) {
+	var in struct {
+		IdentityToken string `json:"identityToken"`
+		DisplayName   string `json:"displayName"`
+	}
+	if c.ShouldBindJSON(&in) != nil || in.IdentityToken == "" {
+		c.JSON(400, gin.H{"error": "identityToken is required"})
+		return
+	}
+	u, a, r, e := h.service.AppleLogin(c, in.IdentityToken, in.DisplayName)
+	if e != nil {
+		c.JSON(401, gin.H{"error": "invalid Apple identity token"})
+		return
+	}
+	c.JSON(200, gin.H{"user": u, "accessToken": a, "refreshToken": r})
+}
 func (h *Handler) Refresh(c *gin.Context) {
 	var in struct {
 		RefreshToken string `json:"refreshToken" binding:"required"`
