@@ -17,14 +17,64 @@ func (h *Handler) audit(c *gin.Context, action, resource string, userID any) {
 }
 
 func NewHandler(db *pgxpool.Pool) *Handler { return &Handler{db: db} }
-func RequireAdmin() gin.HandlerFunc {
+func RequirePermission(db *pgxpool.Pool, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetString("role") != "admin" {
+		allowed := c.GetString("role") == "admin"
+		if !allowed && db != nil {
+			var exists bool
+			uid, _ := uuid.Parse(c.GetString("userID"))
+			_ = db.QueryRow(c, `SELECT EXISTS(SELECT 1 FROM admin_permissions WHERE user_id=$1 AND permission=$2)`, uid, permission).Scan(&exists)
+			allowed = exists
+		}
+		if !allowed {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin role required"})
 			return
 		}
 		c.Next()
 	}
+}
+func RequireAdmin() gin.HandlerFunc { return RequirePermission(nil, "admin.read") }
+
+func (h *Handler) GrantPermission(c *gin.Context) {
+	uid, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user id"})
+		return
+	}
+	var in struct {
+		Permission string `json:"permission"`
+	}
+	if c.ShouldBindJSON(&in) != nil || in.Permission == "" {
+		c.JSON(400, gin.H{"error": "permission is required"})
+		return
+	}
+	grantor, _ := uuid.Parse(c.GetString("userID"))
+	_, err = h.db.Exec(c, `INSERT INTO admin_permissions(user_id,permission,granted_by) VALUES($1,$2,$3) ON CONFLICT(user_id,permission) DO UPDATE SET granted_by=$3`, uid, in.Permission, grantor)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "permission grant failed"})
+		return
+	}
+	h.audit(c, "admin.permission.grant", uid.String(), grantor)
+	c.Status(204)
+}
+func (h *Handler) RevokePermission(c *gin.Context) {
+	uid, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user id"})
+		return
+	}
+	permission := c.Query("permission")
+	if permission == "" {
+		c.JSON(400, gin.H{"error": "permission is required"})
+		return
+	}
+	_, err = h.db.Exec(c, `DELETE FROM admin_permissions WHERE user_id=$1 AND permission=$2`, uid, permission)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "permission revoke failed"})
+		return
+	}
+	h.audit(c, "admin.permission.revoke", uid.String(), c.GetString("userID"))
+	c.Status(204)
 }
 func (h *Handler) Stats(c *gin.Context) {
 	var users int64

@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS sync_cursors (user_id UUID NOT NULL REFERENCES users(
 CREATE TABLE IF NOT EXISTS ai_plans (id UUID PRIMARY KEY,name TEXT NOT NULL UNIQUE,monthly_requests INT NOT NULL DEFAULT 500,input_cost_micros_per_1k INT NOT NULL DEFAULT 100,output_cost_micros_per_1k INT NOT NULL DEFAULT 300,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_plan_id UUID REFERENCES ai_plans(id);
 CREATE TABLE IF NOT EXISTS app_configs (key TEXT PRIMARY KEY,value JSONB NOT NULL DEFAULT '{}'::jsonb,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS admin_permissions (user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, permission TEXT NOT NULL, granted_by UUID REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,permission));
+CREATE INDEX IF NOT EXISTS idx_admin_permissions_user ON admin_permissions(user_id);
 CREATE TABLE IF NOT EXISTS user_files (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,storage_key TEXT NOT NULL UNIQUE,name TEXT NOT NULL,size_bytes BIGINT NOT NULL,content_type TEXT NOT NULL DEFAULT 'application/octet-stream',created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS idx_user_files_user ON user_files(user_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS account_tokens (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,purpose TEXT NOT NULL,expires_at TIMESTAMPTZ NOT NULL,used_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
