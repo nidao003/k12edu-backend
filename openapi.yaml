@@ -12,16 +12,60 @@ paths:
       summary: Apple identity token login
       requestBody: { required: true }
       responses: { '200': { description: OK }, '401': { description: Invalid token } }
+  /api/v1/me/apple/link:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Link a verified Apple identity to the current account
+      responses: { '204': { description: Linked }, '409': { description: Conflict } }
+  /api/v1/me/apple:
+    delete:
+      security: [{ bearerAuth: [] }]
+      summary: Unlink Apple identity when password login is available
+      responses: { '204': { description: Unlinked }, '409': { description: Not allowed } }
+  /api/v1/me/sessions:
+    get:
+      security: [{ bearerAuth: [] }]
+      summary: List active and revoked sessions
+      responses: { '200': { description: Session list } }
+  /api/v1/me/sessions/{id}:
+    delete:
+      security: [{ bearerAuth: [] }]
+      summary: Revoke one session
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '204': { description: Revoked } }
   /api/v1/sync/merge:
     post:
       security: [{ bearerAuth: [] }]
       summary: Merge local and remote progress
       responses: { '200': { description: Merged payload } }
+  /api/v1/sync/events/compact:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Create a replayable compaction event and archive older events
+      parameters: [{ name: before, in: query, required: true, schema: { type: string, format: date-time } }]
+      responses: { '200': { description: Compaction result } }
   /api/v1/ai/chat/completions:
     post:
       security: [{ bearerAuth: [] }]
       summary: Proxy an AI chat completion with quota and safety policy
       responses: { '200': { description: Provider response } }
+  /api/v1/ai/safety/{id}/appeal:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Appeal an owned safety decision
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '202': { description: Appeal accepted } }
+  /api/v1/admin/ai-billing:
+    get:
+      security: [{ bearerAuth: [] }]
+      summary: List AI wallet balances and ledger totals
+      responses: { '200': { description: Billing summary } }
+  /api/v1/admin/users/{id}/ai-credit:
+    post:
+      security: [{ bearerAuth: [] }]
+      summary: Credit an AI wallet
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '204': { description: Credited } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
