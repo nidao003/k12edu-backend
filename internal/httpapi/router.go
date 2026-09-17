@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nidao003/k12edu-backend/internal/auth"
+	syncapi "github.com/nidao003/k12edu-backend/internal/sync"
 )
 
 func NewRouter(pool *pgxpool.Pool, authService *auth.Service) *gin.Engine {
@@ -27,6 +28,13 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service) *gin.Engine {
 		a.POST("/register", h.Register)
 		a.POST("/login", h.Login)
 		v1.GET("/me", h.RequireAuth(), h.Me)
+		if pool != nil {
+			sh := syncapi.NewHandler(pool)
+			protected := v1.Group("/sync", h.RequireAuth())
+			protected.GET("/progress", sh.GetProgress)
+			protected.PUT("/progress", sh.PutProgress)
+			protected.POST("/events", sh.AppendEvents)
+		}
 	}
 
 	r.StaticFile("/admin", "admin/index.html")
