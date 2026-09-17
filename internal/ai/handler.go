@@ -100,11 +100,22 @@ func (h *Handler) admit(c *gin.Context, uid uuid.UUID) bool {
 }
 func (h *Handler) safety(c *gin.Context, uid uuid.UUID, body []byte) bool {
 	lower := strings.ToLower(string(body))
-	for _, term := range []string{"自杀", "自残", "杀人", "色情", "炸弹", "信用卡号", "password", "ignore previous instructions", "忽略之前的指令", "reveal system prompt", "system prompt"} {
+	terms := []string{"自杀", "自残", "杀人", "色情", "炸弹", "信用卡号", "password", "ignore previous instructions", "忽略之前的指令", "reveal system prompt", "system prompt"}
+	var minor bool
+	if h.db != nil {
+		_ = h.db.QueryRow(c, `SELECT minor_mode FROM users WHERE id=$1`, uid).Scan(&minor)
+	}
+	if minor {
+		terms = append(terms, "裸聊", "成人视频", "博彩", "毒品", "约炮", "色情小说")
+	}
+	for _, term := range terms {
 		if strings.Contains(lower, term) {
 			sum := sha256.Sum256(body)
 			if h.db != nil {
 				severity := "high"
+				if minor {
+					severity = "critical"
+				}
 				if strings.Contains(lower, "password") || strings.Contains(lower, "system prompt") {
 					severity = "critical"
 				}

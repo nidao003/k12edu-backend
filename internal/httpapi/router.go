@@ -137,6 +137,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminWrite.PATCH("/ai-safety-events/:id", ah.ReviewSafety)
 			adminWrite.PATCH("/users/:id/role", ah.SetRole)
 			adminWrite.PATCH("/users/:id/disabled", ah.SetDisabled)
+			adminWrite.PATCH("/users/:id/minor-mode", ah.SetMinorMode)
 			adminWrite.PATCH("/users/:id/permission", ah.GrantPermission)
 			adminWrite.DELETE("/users/:id/permission", ah.RevokePermission)
 		}

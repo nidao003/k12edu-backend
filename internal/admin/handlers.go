@@ -76,6 +76,27 @@ func (h *Handler) RevokePermission(c *gin.Context) {
 	h.audit(c, "admin.permission.revoke", uid.String(), c.GetString("userID"))
 	c.Status(204)
 }
+
+func (h *Handler) SetMinorMode(c *gin.Context) {
+	uid, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user id"})
+		return
+	}
+	var in struct {
+		Enabled bool `json:"enabled"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": "enabled is required"})
+		return
+	}
+	if _, err = h.db.Exec(c, `UPDATE users SET minor_mode=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, uid, in.Enabled); err != nil {
+		c.JSON(400, gin.H{"error": "minor mode update failed"})
+		return
+	}
+	h.audit(c, "user.minor_mode.update", uid.String(), c.GetString("userID"))
+	c.Status(204)
+}
 func (h *Handler) Stats(c *gin.Context) {
 	var users int64
 	var active int64
