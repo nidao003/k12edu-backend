@@ -150,6 +150,49 @@ func (h *Handler) AIUsage(c *gin.Context) {
 	c.JSON(200, gin.H{"items": out})
 }
 
+func (h *Handler) AIBilling(c *gin.Context) {
+	rows, err := h.db.Query(c, `SELECT w.user_id,w.balance_micros,COALESCE(SUM(CASE WHEN l.kind='usage' THEN -l.amount_micros ELSE 0 END),0),COALESCE(SUM(CASE WHEN l.kind='credit' THEN l.amount_micros ELSE 0 END),0) FROM ai_wallets w LEFT JOIN ai_ledger l ON l.user_id=w.user_id GROUP BY w.user_id,w.balance_micros ORDER BY w.updated_at DESC LIMIT 500`)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var uid string
+		var balance, spent, credited int64
+		if rows.Scan(&uid, &balance, &spent, &credited) == nil {
+			out = append(out, gin.H{"userId": uid, "balanceMicros": balance, "spentMicros": spent, "creditedMicros": credited})
+		}
+	}
+	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) CreditAI(c *gin.Context) {
+	uid, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user id"})
+		return
+	}
+	var in struct {
+		AmountMicros int64 `json:"amountMicros"`
+	}
+	if c.ShouldBindJSON(&in) != nil || in.AmountMicros <= 0 {
+		c.JSON(400, gin.H{"error": "amountMicros must be positive"})
+		return
+	}
+	_, err = h.db.Exec(c, `INSERT INTO ai_wallets(user_id,balance_micros) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET balance_micros=ai_wallets.balance_micros+$2,updated_at=NOW()`, uid, in.AmountMicros)
+	if err == nil {
+		_, err = h.db.Exec(c, `INSERT INTO ai_ledger(id,user_id,kind,amount_micros,metadata) VALUES($1,$2,'credit',$3,'{}')`, uuid.New(), uid, in.AmountMicros)
+	}
+	if err != nil {
+		c.JSON(400, gin.H{"error": "credit failed"})
+		return
+	}
+	h.audit(c, "ai.wallet.credit", uid.String(), c.GetString("userID"))
+	c.Status(204)
+}
+
 func (h *Handler) AISafetyEvents(c *gin.Context) {
 	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,status,decision,severity,appeal_status,reviewed_at,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
 	if e != nil {

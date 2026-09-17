@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS content_items (
 );
 CREATE INDEX IF NOT EXISTS idx_content_items_kind_published ON content_items(kind, published);
 CREATE TABLE IF NOT EXISTS ai_policies (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,period TEXT NOT NULL,request_count INT NOT NULL DEFAULT 0,input_tokens INT NOT NULL DEFAULT 0,output_tokens INT NOT NULL DEFAULT 0,cost_micros BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,period));
+CREATE TABLE IF NOT EXISTS ai_wallets (user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, balance_micros BIGINT NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS ai_ledger (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,kind TEXT NOT NULL,amount_micros BIGINT NOT NULL,reference_id UUID,metadata JSONB NOT NULL DEFAULT '{}'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX IF NOT EXISTS idx_ai_ledger_user_created ON ai_ledger(user_id,created_at DESC);
 CREATE TABLE IF NOT EXISTS ai_safety_events (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,reason TEXT NOT NULL,content_hash TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',reviewer_id UUID REFERENCES users(id),decision TEXT NOT NULL DEFAULT '',reviewed_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open';
 ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS reviewer_id UUID REFERENCES users(id);

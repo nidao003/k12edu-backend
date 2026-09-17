@@ -293,6 +293,11 @@ func (h *Handler) Chat(c *gin.Context) {
 		_ = h.db.QueryRow(c, `SELECT COALESCE(p.input_cost_micros_per_1k,$2),COALESCE(p.output_cost_micros_per_1k,$3) FROM users u LEFT JOIN ai_plans p ON p.id=u.ai_plan_id WHERE u.id=$1`, uid, h.inputCost, h.outputCost).Scan(&inputCost, &outputCost)
 		cost := int64((inTok*inputCost + outTok*outputCost) / 1000)
 		_, _ = h.db.Exec(c, `INSERT INTO ai_usage(id,user_id,model,provider_status,input_bytes,output_bytes,input_tokens,output_tokens,cost_micros) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), uid, in.Model, resp.StatusCode, len(body), len(data), inTok, outTok, cost)
+		if cost > 0 {
+			_, _ = h.db.Exec(c, `INSERT INTO ai_wallets(user_id,balance_micros) VALUES($1,0) ON CONFLICT(user_id) DO NOTHING`, uid)
+			_, _ = h.db.Exec(c, `UPDATE ai_wallets SET balance_micros=balance_micros-$2,updated_at=NOW() WHERE user_id=$1`, uid, cost)
+			_, _ = h.db.Exec(c, `INSERT INTO ai_ledger(id,user_id,kind,amount_micros,metadata) VALUES($1,$2,'usage',$3,$4)`, uuid.New(), uid, -cost, json.RawMessage(fmt.Sprintf(`{"model":%q,"inputTokens":%d,"outputTokens":%d}`, in.Model, inTok, outTok)))
+		}
 		_, _ = h.db.Exec(c, `UPDATE ai_policies SET input_tokens=input_tokens+$1,output_tokens=output_tokens+$2,cost_micros=cost_micros+$3,updated_at=NOW() WHERE user_id=$4 AND period=$5`, inTok, outTok, cost, uid, month)
 	}
 	c.Data(resp.StatusCode, "application/json", data)
