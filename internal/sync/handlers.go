@@ -32,6 +32,33 @@ type deviceInput struct {
 	Name     string `json:"name"`
 }
 
+func (h *Handler) Acknowledge(c *gin.Context) {
+	uid, e := uuid.Parse(c.GetString("userID"))
+	if e != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	var in struct {
+		DeviceID string    `json:"deviceId"`
+		CursorAt time.Time `json:"cursorAt"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": "invalid cursor"})
+		return
+	}
+	did, e := uuid.Parse(in.DeviceID)
+	if e != nil || in.CursorAt.IsZero() {
+		c.JSON(400, gin.H{"error": "deviceId and cursorAt are required"})
+		return
+	}
+	_, e = h.db.Exec(c, `INSERT INTO sync_cursors(user_id,device_id,cursor_at) VALUES($1,$2,$3) ON CONFLICT(user_id,device_id) DO UPDATE SET cursor_at=GREATEST(sync_cursors.cursor_at,EXCLUDED.cursor_at),updated_at=NOW()`, uid, did, in.CursorAt)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "cursor update failed"})
+		return
+	}
+	c.Status(204)
+}
+
 func (h *Handler) RegisterDevice(c *gin.Context) {
 	uid, err := uuid.Parse(c.GetString("userID"))
 	if err != nil {

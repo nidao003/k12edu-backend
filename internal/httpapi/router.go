@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/google/uuid"
 	"net/http"
 	"time"
 
@@ -17,6 +18,24 @@ import (
 func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string, rdb ...*redis.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(func(c *gin.Context) {
+		id := c.GetHeader("X-Request-ID")
+		if id == "" {
+			id = uuid.NewString()
+		}
+		c.Header("X-Request-ID", id)
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "no-referrer")
+		if c.Request.Method == http.MethodOptions {
+			c.Header("Access-Control-Allow-Origin", c.GetHeader("Origin"))
+			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+			c.Header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "k12edu-backend", "time": time.Now().UTC()})
@@ -34,6 +53,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		a.POST("/apple", h.Apple)
 		a.POST("/refresh", h.Refresh)
 		v1.GET("/me", h.RequireAuth(), h.Me)
+		v1.POST("/me/password", h.RequireAuth(), h.ChangePassword)
+		v1.GET("/me/export", h.RequireAuth(), h.Export)
 		v1.DELETE("/me", h.RequireAuth(), h.DeleteAccount)
 		if pool != nil {
 			sh := syncapi.NewHandler(pool)
@@ -44,6 +65,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.POST("/events", sh.AppendEvents)
 			protected.POST("/devices", sh.RegisterDevice)
 			protected.GET("/events", sh.Events)
+			protected.POST("/cursor", sh.Acknowledge)
 		}
 		if pool != nil {
 			ch := content.NewHandler(pool, rdb...)
@@ -60,6 +82,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.GET("/stats", ah.Stats)
 			adminRoutes.GET("/users", ah.Users)
 			adminRoutes.GET("/ai-usage", ah.AIUsage)
+			adminRoutes.GET("/ai-safety-events", ah.AISafetyEvents)
+			adminRoutes.GET("/audit-logs", ah.AuditLogs)
 			adminRoutes.PATCH("/users/:id/role", ah.SetRole)
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
 		}

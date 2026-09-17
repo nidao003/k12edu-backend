@@ -77,6 +77,31 @@ func (h *Handler) Refresh(c *gin.Context) {
 func (h *Handler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": gin.H{"id": c.GetString("userID"), "role": c.GetString("role")}})
 }
+func (h *Handler) ChangePassword(c *gin.Context) {
+	id, e := uuid.Parse(c.GetString("userID"))
+	var in struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if e != nil || c.ShouldBindJSON(&in) != nil || h.service.ChangePassword(c, id, in.OldPassword, in.NewPassword) != nil {
+		c.JSON(400, gin.H{"error": "password change failed"})
+		return
+	}
+	c.Status(204)
+}
+func (h *Handler) Export(c *gin.Context) {
+	id, e := uuid.Parse(c.GetString("userID"))
+	if e != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	u, e := h.service.Export(c, id)
+	if e != nil {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+	c.JSON(200, gin.H{"user": u})
+}
 func (h *Handler) DeleteAccount(c *gin.Context) {
 	id, err := uuid.Parse(c.GetString("userID"))
 	if err != nil || h.service.Delete(c, id) != nil {

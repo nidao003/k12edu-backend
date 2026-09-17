@@ -1,33 +1,32 @@
-# k12edu-backend
+# K12Edu Backend
 
-`k12edu` 的 Go 云端服务，负责账号、云端数据同步、平台 AI 服务和 Web 管理后台。
+面向 iPhone、iPad、Mac 客户端的 Go 云端服务。支持本地优先模式：客户端可以只使用本地模型和本地数据；登录云端后再启用同步、云端 AI 和云端存储能力。
 
-## 当前状态
+## 已实现模块
 
-仓库从空仓库开始搭建。当前已提供：
+- Gin API、PostgreSQL 数据底座、Redis 缓存与分布式限流
+- 邮箱注册登录、JWT 刷新、Apple identity token 登录、账号注销、密码修改、数据导出
+- 多设备注册、增量事件、版本保护、递归三方合并、数组去重
+- AI Provider 网关、请求限流、月度配额、token/费用累计、敏感请求拦截、安全事件审计
+- 用户、内容、AI 用量、安全审核、审计日志管理接口
+- Vue 3 + Element Plus 管理后台：`/admin/`
+- Docker Compose：PostgreSQL、Redis、API
 
-- Go + Gin API 入口
-- `/healthz` 和 `/api/v1/health` 健康检查
-- `/admin/` 管理后台页面壳
+## 关键环境变量
 
-管理员账号可通过 `K12EDU_ADMIN_EMAIL` 和 `K12EDU_ADMIN_PASSWORD` 在启动时初始化。开发环境可运行 `docker compose up --build`，然后访问 `/admin/`。
-- Dockerfile 和 Docker Compose
+`K12EDU_DATABASE_URL`、`K12EDU_REDIS_URL`、`K12EDU_JWT_SECRET`、`K12EDU_AI_BASE_URL`、`K12EDU_AI_API_KEY`、`K12EDU_APPLE_CLIENT_ID`、`K12EDU_ADMIN_EMAIL`、`K12EDU_ADMIN_PASSWORD`。
 
-## 本地运行
+## 主要接口
 
-```bash
-go run ./cmd/api
-```
+- `POST /api/v1/auth/apple`
+- `POST /api/v1/sync/merge`
+- `GET|PUT /api/v1/sync/progress`
+- `POST /api/v1/ai/chat/completions`
+- `GET /api/v1/admin/stats`
+- `GET /api/v1/admin/ai-usage`
+- `GET /api/v1/admin/ai-safety-events`
+- `GET /api/v1/admin/audit-logs`
 
-打开：
+## 当前明确不包含
 
-- http://localhost:8080/healthz
-- http://localhost:8080/admin/
-
-## 规划
-
-1. PostgreSQL 数据模型与迁移
-2. 用户认证、Apple 登录和账号删除
-3. 本地/云端同步 API
-4. AI Provider 网关与用量限制
-5. Vue 3 管理后台替换当前页面壳
+本阶段按要求不做自动化测试、部署、真实设备联调、App Store 上架流程和压力测试。上线前仍需补齐这些验证工作，并将管理后台的 CDN 依赖替换为正式的离线构建产物。

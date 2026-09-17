@@ -222,3 +222,25 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.Exec(ctx, `UPDATE users SET deleted_at=NOW(), email=NULL, password_hash=NULL, updated_at=NOW() WHERE id=$1`, id)
 	return err
 }
+
+func (s *Service) ChangePassword(ctx context.Context, id uuid.UUID, oldPassword, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrInvalidCredentials
+	}
+	var hash string
+	if err := s.db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&hash); err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(oldPassword)) != nil {
+		return ErrInvalidCredentials
+	}
+	next, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `UPDATE users SET password_hash=$2,updated_at=NOW() WHERE id=$1`, id, string(next))
+	return err
+}
+
+func (s *Service) Export(ctx context.Context, id uuid.UUID) (User, error) {
+	var u User
+	err := s.db.QueryRow(ctx, `SELECT id,COALESCE(email,''),COALESCE(display_name,''),role FROM users WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role)
+	return u, err
+}

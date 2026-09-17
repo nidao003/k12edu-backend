@@ -78,6 +78,48 @@ func (h *Handler) AIUsage(c *gin.Context) {
 	c.JSON(200, gin.H{"items": out})
 }
 
+func (h *Handler) AISafetyEvents(c *gin.Context) {
+	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id, uid, reason, hash string
+		var created any
+		if e := rows.Scan(&id, &uid, &reason, &hash, &created); e != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"id": id, "userId": uid, "reason": reason, "contentHash": hash, "createdAt": created})
+	}
+	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) AuditLogs(c *gin.Context) {
+	rows, e := h.db.Query(c, `SELECT id,user_id,action,resource,metadata,ip,created_at FROM audit_logs ORDER BY created_at DESC LIMIT 200`)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id, action, res, ip string
+		var uid any
+		var meta []byte
+		var created any
+		if e := rows.Scan(&id, &uid, &action, &res, &meta, &ip, &created); e != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"id": id, "userId": uid, "action": action, "resource": res, "metadata": meta, "ip": ip, "createdAt": created})
+	}
+	c.JSON(200, gin.H{"items": out})
+}
+
 func (h *Handler) SetRole(c *gin.Context) {
 	id, e := uuid.Parse(c.Param("id"))
 	if e != nil {
