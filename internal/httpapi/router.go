@@ -108,6 +108,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.GET("/events", sh.Events)
 			protected.POST("/cursor", sh.Acknowledge)
 			protected.POST("/events/archive", sh.ArchiveEvents)
+			protected.POST("/events/compact", sh.CompactEvents)
 			protected.GET("/events/replay", sh.ReplayEvents)
 		}
 		if pool != nil {

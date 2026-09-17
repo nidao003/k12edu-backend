@@ -139,6 +139,56 @@ func (h *Handler) ArchiveEvents(c *gin.Context) {
 	c.JSON(200, gin.H{"archived": tag.RowsAffected()})
 }
 
+func (h *Handler) CompactEvents(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	before := c.Query("before")
+	if before == "" {
+		c.JSON(400, gin.H{"error": "before is required"})
+		return
+	}
+	rows, err := h.db.Query(c, `SELECT id,event_type,payload,client_created_at,deleted_at FROM sync_events WHERE user_id=$1 AND created_at<$2::timestamptz AND archived_at IS NULL ORDER BY created_at LIMIT 5000`, uid, before)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	type compacted struct {
+		ID              uuid.UUID       `json:"id"`
+		EventType       string          `json:"eventType"`
+		Payload         json.RawMessage `json:"payload"`
+		ClientCreatedAt time.Time       `json:"clientCreatedAt"`
+		DeletedAt       *time.Time      `json:"deletedAt,omitempty"`
+	}
+	items := make([]compacted, 0)
+	ids := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var item compacted
+		if rows.Scan(&item.ID, &item.EventType, &item.Payload, &item.ClientCreatedAt, &item.DeletedAt) == nil {
+			items = append(items, item)
+			ids = append(ids, item.ID)
+		}
+	}
+	if len(items) == 0 {
+		c.JSON(200, gin.H{"compressed": 0})
+		return
+	}
+	payload, _ := json.Marshal(gin.H{"kind": "sync_compaction", "from": ids[0], "to": ids[len(ids)-1], "events": items})
+	compactID := uuid.New()
+	if _, err = h.db.Exec(c, `INSERT INTO sync_events(id,user_id,event_type,payload,client_created_at) VALUES($1,$2,'sync.compaction',$3,NOW())`, compactID, uid, payload); err != nil {
+		c.JSON(500, gin.H{"error": "compaction failed"})
+		return
+	}
+	if _, err = h.db.Exec(c, `UPDATE sync_events SET archived_at=NOW() WHERE user_id=$1 AND created_at<$2::timestamptz AND archived_at IS NULL AND id<>$3`, uid, before, compactID); err != nil {
+		c.JSON(500, gin.H{"error": "archive failed"})
+		return
+	}
+	c.JSON(200, gin.H{"compressed": len(items), "eventId": compactID, "replayable": true})
+}
+
 func (h *Handler) ReplayEvents(c *gin.Context) {
 	uid, e := uuid.Parse(c.GetString("userID"))
 	if e != nil {
