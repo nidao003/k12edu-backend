@@ -6,6 +6,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 type Handler struct{ db *pgxpool.Pool }
@@ -39,7 +41,21 @@ func (h *Handler) Stats(c *gin.Context) {
 	c.JSON(200, gin.H{"users": users, "activeUsers24h": active, "aiCalls24h": aiCalls})
 }
 func (h *Handler) Users(c *gin.Context) {
-	rows, e := h.db.Query(c, `SELECT id,email,display_name,role,created_at FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	size, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 200 {
+		size = 50
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	includeDisabled := c.Query("includeDisabled") == "true"
+	where := "deleted_at IS NULL"
+	if includeDisabled {
+		where = "TRUE"
+	}
+	rows, e := h.db.Query(c, `SELECT id,COALESCE(email,''),COALESCE(display_name,''),role,created_at,deleted_at FROM users WHERE `+where+` AND ($1='' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%') ORDER BY created_at DESC LIMIT $2 OFFSET $3`, q, size, (page-1)*size)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -48,18 +64,20 @@ func (h *Handler) Users(c *gin.Context) {
 	out := make([]gin.H, 0)
 	for rows.Next() {
 		var id, email, name, role string
-		var created any
-		if e := rows.Scan(&id, &email, &name, &role, &created); e != nil {
+		var created, disabled any
+		if e := rows.Scan(&id, &email, &name, &role, &created, &disabled); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "email": email, "displayName": name, "role": role, "createdAt": created})
+		out = append(out, gin.H{"id": id, "email": email, "displayName": name, "role": role, "disabled": disabled != nil, "createdAt": created})
 	}
-	c.JSON(200, gin.H{"users": out})
+	var total int64
+	_ = h.db.QueryRow(c, `SELECT COUNT(*) FROM users WHERE `+where+` AND ($1='' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')`, q).Scan(&total)
+	c.JSON(200, gin.H{"users": out, "page": page, "pageSize": size, "total": total})
 }
 
 func (h *Handler) AIUsage(c *gin.Context) {
-	rows, e := h.db.Query(c, `SELECT model,COUNT(*),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0) FROM ai_usage WHERE created_at>NOW()-INTERVAL '30 days' GROUP BY model ORDER BY COUNT(*) DESC`)
+	rows, e := h.db.Query(c, `SELECT model,COUNT(*),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0),COALESCE(SUM(p.cost_micros),0) FROM ai_usage u LEFT JOIN ai_policies p ON p.user_id=u.user_id AND p.period=TO_CHAR(u.created_at,'YYYY-MM') WHERE u.created_at>NOW()-INTERVAL '30 days' GROUP BY model ORDER BY COUNT(*) DESC`)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -68,12 +86,12 @@ func (h *Handler) AIUsage(c *gin.Context) {
 	out := make([]gin.H, 0)
 	for rows.Next() {
 		var model string
-		var calls, inBytes, outBytes int64
-		if e := rows.Scan(&model, &calls, &inBytes, &outBytes); e != nil {
+		var calls, inBytes, outBytes, cost int64
+		if e := rows.Scan(&model, &calls, &inBytes, &outBytes, &cost); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"model": model, "calls": calls, "inputBytes": inBytes, "outputBytes": outBytes})
+		out = append(out, gin.H{"model": model, "calls": calls, "inputBytes": inBytes, "outputBytes": outBytes, "costMicros": cost})
 	}
 	c.JSON(200, gin.H{"items": out})
 }
@@ -156,6 +174,32 @@ func (h *Handler) UpsertPlan(c *gin.Context) {
 		return
 	}
 	c.Status(201)
+}
+
+func (h *Handler) AssignPlan(c *gin.Context) {
+	uid, e := uuid.Parse(c.Param("id"))
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid user id"})
+		return
+	}
+	var in struct {
+		PlanID string `json:"planId"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": "planId is required"})
+		return
+	}
+	pid, e := uuid.Parse(in.PlanID)
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid plan id"})
+		return
+	}
+	tag, e := h.db.Exec(c, `UPDATE users SET ai_plan_id=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM ai_plans WHERE id=$2)`, uid, pid)
+	if e != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "user or plan not found"})
+		return
+	}
+	c.Status(204)
 }
 
 func (h *Handler) AuditLogs(c *gin.Context) {

@@ -98,6 +98,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.GET("/audit-logs", ah.AuditLogs)
 			adminRoutes.GET("/ai-plans", ah.Plans)
 			adminRoutes.POST("/ai-plans", ah.UpsertPlan)
+			adminRoutes.PATCH("/users/:id/ai-plan", ah.AssignPlan)
 			adminRoutes.PATCH("/ai-safety-events/:id", ah.ReviewSafety)
 			adminRoutes.PATCH("/users/:id/role", ah.SetRole)
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
