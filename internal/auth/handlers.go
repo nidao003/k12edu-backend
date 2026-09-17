@@ -49,12 +49,13 @@ func (h *Handler) Apple(c *gin.Context) {
 	var in struct {
 		IdentityToken string `json:"identityToken"`
 		DisplayName   string `json:"displayName"`
+		Nonce         string `json:"nonce"`
 	}
 	if c.ShouldBindJSON(&in) != nil || in.IdentityToken == "" {
 		c.JSON(400, gin.H{"error": "identityToken is required"})
 		return
 	}
-	u, a, r, e := h.service.AppleLogin(c, in.IdentityToken, in.DisplayName)
+	u, a, r, e := h.service.AppleLogin(c, in.IdentityToken, in.DisplayName, in.Nonce)
 	if e != nil {
 		c.JSON(401, gin.H{"error": "invalid Apple identity token"})
 		return

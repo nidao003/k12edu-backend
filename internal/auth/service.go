@@ -55,7 +55,7 @@ func NewService(pool *pgxpool.Pool, secret string, appleClientID ...string) *Ser
 	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour, appleClientID: id}
 }
 
-func (s *Service) AppleLogin(ctx context.Context, identityToken, name string) (User, string, string, error) {
+func (s *Service) AppleLogin(ctx context.Context, identityToken, name, nonce string) (User, string, string, error) {
 	if s.appleClientID == "" {
 		return User{}, "", "", ErrInvalidCredentials
 	}
@@ -99,6 +99,14 @@ func (s *Service) AppleLogin(ctx context.Context, identityToken, name string) (U
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok || claims["iss"] != "https://appleid.apple.com" || claims["aud"] != s.appleClientID {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	if nonce == "" {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	claimNonce, _ := claims["nonce"].(string)
+	sum := sha256.Sum256([]byte(nonce))
+	if claimNonce != nonce && claimNonce != fmt.Sprintf("%x", sum[:]) {
 		return User{}, "", "", ErrInvalidCredentials
 	}
 	sub, _ := claims["sub"].(string)

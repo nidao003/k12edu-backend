@@ -123,10 +123,28 @@ func (h *Handler) Chat(c *gin.Context) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+h.apiKey)
-	resp, e := h.client.Do(req)
-	if e != nil {
-		c.JSON(502, gin.H{"error": "AI provider unavailable"})
-		return
+	var resp *http.Response
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			var bodyErr error
+			req.Body, bodyErr = req.GetBody()
+			if bodyErr != nil {
+				c.JSON(502, gin.H{"error": "AI request body unavailable"})
+				return
+			}
+		}
+		resp, e = h.client.Do(req)
+		if e == nil && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			break
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if attempt == 2 {
+			c.JSON(502, gin.H{"error": "AI provider unavailable"})
+			return
+		}
+		time.Sleep(time.Duration(200*(attempt+1)) * time.Millisecond)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
