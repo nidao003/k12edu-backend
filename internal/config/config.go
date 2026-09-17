@@ -5,6 +5,7 @@ import "os"
 type Config struct {
 	Addr          string
 	DatabaseURL   string
+	RedisURL      string
 	JWTSecret     string
 	AIBaseURL     string
 	AIAPIKey      string
@@ -22,5 +23,5 @@ func Load() Config {
 	if secret == "" {
 		secret = "dev-only-change-me"
 	}
-	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret, AIBaseURL: os.Getenv("K12EDU_AI_BASE_URL"), AIAPIKey: os.Getenv("K12EDU_AI_API_KEY"), AdminEmail: os.Getenv("K12EDU_ADMIN_EMAIL"), AdminPassword: os.Getenv("K12EDU_ADMIN_PASSWORD")}
+	return Config{Addr: addr, DatabaseURL: databaseURL, RedisURL: os.Getenv("K12EDU_REDIS_URL"), JWTSecret: secret, AIBaseURL: os.Getenv("K12EDU_AI_BASE_URL"), AIAPIKey: os.Getenv("K12EDU_AI_API_KEY"), AdminEmail: os.Getenv("K12EDU_ADMIN_EMAIL"), AdminPassword: os.Getenv("K12EDU_ADMIN_PASSWORD")}
 }

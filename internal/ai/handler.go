@@ -2,6 +2,7 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,25 +13,37 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
 	baseURL, apiKey string
 	client          *http.Client
 	db              *pgxpool.Pool
+	redis           *redis.Client
 	mu              sync.Mutex
 	recent          map[string][]time.Time
 }
 
-func NewHandler(baseURL, apiKey string, db ...*pgxpool.Pool) *Handler {
-	var pool *pgxpool.Pool
-	if len(db) > 0 {
-		pool = db[0]
+func NewHandler(baseURL, apiKey string, pool *pgxpool.Pool, rdb ...*redis.Client) *Handler {
+	var client *redis.Client
+	if len(rdb) > 0 {
+		client = rdb[0]
 	}
-	return &Handler{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: &http.Client{Timeout: 90 * time.Second}, db: pool, recent: map[string][]time.Time{}}
+	return &Handler{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: &http.Client{Timeout: 90 * time.Second}, db: pool, redis: client, recent: map[string][]time.Time{}}
 }
 
 func (h *Handler) allowed(user string) bool {
+	if h.redis != nil {
+		key := "k12edu:ai:rate:" + user
+		n, err := h.redis.Incr(context.Background(), key).Result()
+		if err == nil {
+			if n == 1 {
+				h.redis.Expire(context.Background(), key, time.Minute)
+			}
+			return n <= 20
+		}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	now := time.Now()

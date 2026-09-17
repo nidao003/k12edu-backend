@@ -11,9 +11,10 @@ import (
 	"github.com/nidao003/k12edu-backend/internal/auth"
 	"github.com/nidao003/k12edu-backend/internal/content"
 	syncapi "github.com/nidao003/k12edu-backend/internal/sync"
+	"github.com/redis/go-redis/v9"
 )
 
-func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string) *gin.Engine {
+func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string, rdb ...*redis.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -58,7 +59,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.GET("/users", ah.Users)
 			adminRoutes.GET("/ai-usage", ah.AIUsage)
 		}
-		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool)
+		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, rdb...)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 	}
 
