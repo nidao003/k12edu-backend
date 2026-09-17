@@ -27,6 +27,24 @@ type Handler struct {
 	recent                map[string][]time.Time
 	monthlyQuota          int
 	inputCost, outputCost int
+	providerFailures      int
+	providerOpenUntil     time.Time
+}
+
+func (h *Handler) Health(c *gin.Context) {
+	h.mu.Lock()
+	open := time.Now().Before(h.providerOpenUntil)
+	failures := h.providerFailures
+	h.mu.Unlock()
+	if h.baseURL == "" || h.apiKey == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unconfigured"})
+		return
+	}
+	if open {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "circuit_open", "failures": failures})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "failures": failures})
 }
 
 func NewHandler(baseURL, apiKey string, pool *pgxpool.Pool, quota, inputCost, outputCost int, rdb ...*redis.Client) *Handler {
@@ -105,6 +123,13 @@ func (h *Handler) Chat(c *gin.Context) {
 		c.JSON(503, gin.H{"error": "AI provider is not configured"})
 		return
 	}
+	h.mu.Lock()
+	if time.Now().Before(h.providerOpenUntil) {
+		h.mu.Unlock()
+		c.JSON(503, gin.H{"code": "AI_PROVIDER_CIRCUIT_OPEN", "error": "AI provider temporarily unavailable"})
+		return
+	}
+	h.mu.Unlock()
 	body, e := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
 	if e != nil || !json.Valid(body) {
 		c.JSON(400, gin.H{"error": "invalid JSON"})
@@ -143,11 +168,21 @@ func (h *Handler) Chat(c *gin.Context) {
 			resp.Body.Close()
 		}
 		if attempt == 2 {
+			h.mu.Lock()
+			h.providerFailures++
+			if h.providerFailures >= 5 {
+				h.providerOpenUntil = time.Now().Add(30 * time.Second)
+				h.providerFailures = 0
+			}
+			h.mu.Unlock()
 			c.JSON(502, gin.H{"error": "AI provider unavailable"})
 			return
 		}
 		time.Sleep(time.Duration(200*(attempt+1)) * time.Millisecond)
 	}
+	h.mu.Lock()
+	h.providerFailures = 0
+	h.mu.Unlock()
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if h.db != nil {

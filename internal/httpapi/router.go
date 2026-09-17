@@ -104,6 +104,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
 		}
 		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, 500, 100, 300, rdb...)
+		v1.GET("/ai/health", h.RequireAuth(), aiHandler.Health)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 	}
 
