@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nidao003/k12edu-backend/internal/storage"
+	"io"
 	"net/http"
+	"strings"
 )
 
 type storageHandler struct {
@@ -26,13 +29,33 @@ func (h storageHandler) Upload(c *gin.Context) {
 		return
 	}
 	defer src.Close()
+	content, readErr := io.ReadAll(io.LimitReader(src, 25<<20+1))
+	if len(content) > 25<<20 {
+		Error(c, 400, "FILE_INVALID", "file is required and must be <=25MB")
+		return
+	}
+	if readErr != nil {
+		Error(c, 400, "FILE_READ_FAILED", "cannot inspect file")
+		return
+	}
+	safetyStatus := "pending"
+	if strings.HasPrefix(f.Header.Get("Content-Type"), "text/") || strings.HasSuffix(strings.ToLower(f.Filename), ".txt") || strings.HasSuffix(strings.ToLower(f.Filename), ".md") {
+		for _, term := range []string{"自杀", "自残", "炸弹", "ignore previous instructions", "system prompt"} {
+			if strings.Contains(strings.ToLower(string(content)), term) {
+				Error(c, 403, "FILE_SAFETY_BLOCKED", "file blocked by safety policy")
+				return
+			}
+		}
+		safetyStatus = "approved"
+	}
+	src = io.NopCloser(bytes.NewReader(content))
 	key, err := h.store.Put(c, f.Filename, src)
 	if err != nil {
 		Error(c, 500, "FILE_SAVE_FAILED", "cannot save file")
 		return
 	}
 	id := uuid.New()
-	if _, err = h.db.Exec(c, `INSERT INTO user_files(id,user_id,storage_key,name,size_bytes,content_type) VALUES($1,$2,$3,$4,$5,$6)`, id, uid, key, f.Filename, f.Size, f.Header.Get("Content-Type")); err != nil {
+	if _, err = h.db.Exec(c, `INSERT INTO user_files(id,user_id,storage_key,name,size_bytes,content_type,safety_status) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, uid, key, f.Filename, f.Size, f.Header.Get("Content-Type"), safetyStatus); err != nil {
 		_ = h.store.Delete(c, key)
 		Error(c, 500, "FILE_METADATA_FAILED", "cannot save file metadata")
 		return
