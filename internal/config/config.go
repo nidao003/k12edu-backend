@@ -6,6 +6,8 @@ type Config struct {
 	Addr        string
 	DatabaseURL string
 	JWTSecret   string
+	AIBaseURL   string
+	AIAPIKey    string
 }
 
 func Load() Config {
@@ -18,5 +20,5 @@ func Load() Config {
 	if secret == "" {
 		secret = "dev-only-change-me"
 	}
-	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret}
+	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret, AIBaseURL: os.Getenv("K12EDU_AI_BASE_URL"), AIAPIKey: os.Getenv("K12EDU_AI_API_KEY")}
 }

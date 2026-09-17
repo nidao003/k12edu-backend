@@ -6,11 +6,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nidao003/k12edu-backend/internal/admin"
+	"github.com/nidao003/k12edu-backend/internal/ai"
 	"github.com/nidao003/k12edu-backend/internal/auth"
 	syncapi "github.com/nidao003/k12edu-backend/internal/sync"
 )
 
-func NewRouter(pool *pgxpool.Pool, authService *auth.Service) *gin.Engine {
+func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -35,6 +37,14 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service) *gin.Engine {
 			protected.PUT("/progress", sh.PutProgress)
 			protected.POST("/events", sh.AppendEvents)
 		}
+		if pool != nil {
+			ah := admin.NewHandler(pool)
+			adminRoutes := v1.Group("/admin", h.RequireAuth(), admin.RequireAdmin())
+			adminRoutes.GET("/stats", ah.Stats)
+			adminRoutes.GET("/users", ah.Users)
+		}
+		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey)
+		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 	}
 
 	r.StaticFile("/admin", "admin/index.html")

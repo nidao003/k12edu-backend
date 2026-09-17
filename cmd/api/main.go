@@ -27,7 +27,7 @@ func main() {
 		authService = auth.NewService(pool, cfg.JWTSecret)
 	}
 	log.Printf("k12edu backend listening on %s", cfg.Addr)
-	if err := httpapi.NewRouter(pool, authService).Run(cfg.Addr); err != nil {
+	if err := httpapi.NewRouter(pool, authService, cfg.AIBaseURL, cfg.AIAPIKey).Run(cfg.Addr); err != nil {
 		log.Fatal(err)
 	}
 }
