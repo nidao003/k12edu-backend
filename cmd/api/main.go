@@ -1,14 +1,28 @@
 package main
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/nidao003/k12edu-backend/internal/config"
+	"github.com/nidao003/k12edu-backend/internal/db"
 	"github.com/nidao003/k12edu-backend/internal/httpapi"
 )
 
 func main() {
 	cfg := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Printf("database disabled: %v", err)
+	} else {
+		defer pool.Close()
+		if err := db.Migrate(ctx, pool); err != nil {
+			log.Fatal(err)
+		}
+	}
 	log.Printf("k12edu backend listening on %s", cfg.Addr)
 	if err := httpapi.NewRouter().Run(cfg.Addr); err != nil {
 		log.Fatal(err)

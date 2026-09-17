@@ -3,7 +3,8 @@ package config
 import "os"
 
 type Config struct {
-	Addr string
+	Addr        string
+	DatabaseURL string
 }
 
 func Load() Config {
@@ -11,5 +12,6 @@ func Load() Config {
 	if addr == "" {
 		addr = ":8080"
 	}
-	return Config{Addr: addr}
+	databaseURL := os.Getenv("K12EDU_DATABASE_URL")
+	return Config{Addr: addr, DatabaseURL: databaseURL}
 }
