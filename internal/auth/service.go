@@ -1,0 +1,92 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
+)
+
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
+type Service struct {
+	db                    *pgxpool.Pool
+	secret                []byte
+	accessTTL, refreshTTL time.Duration
+}
+type User struct {
+	ID          uuid.UUID `json:"id"`
+	Email       string    `json:"email"`
+	DisplayName string    `json:"displayName"`
+	Role        string    `json:"role"`
+}
+
+func NewService(pool *pgxpool.Pool, secret string) *Service {
+	return &Service{db: pool, secret: []byte(secret), accessTTL: 30 * time.Minute, refreshTTL: 30 * 24 * time.Hour}
+}
+func (s *Service) Register(ctx context.Context, email, password, name string) (User, string, string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	if len(email) < 5 || len(password) < 8 {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return User{}, "", "", err
+	}
+	u := User{ID: uuid.New(), Email: email, DisplayName: name, Role: "student"}
+	if _, err = s.db.Exec(ctx, `INSERT INTO users (id,email,password_hash,display_name) VALUES ($1,$2,$3,$4)`, u.ID, u.Email, string(hash), u.DisplayName); err != nil {
+		return User{}, "", "", err
+	}
+	a, r, err := s.tokens(u)
+	return u, a, r, err
+}
+func (s *Service) Login(ctx context.Context, email, password string) (User, string, string, error) {
+	var u User
+	var hash string
+	err := s.db.QueryRow(ctx, `SELECT id,email,display_name,role,password_hash FROM users WHERE email=$1 AND deleted_at IS NULL`, strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &hash)
+	if errors.Is(err, pgx.ErrNoRows) || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		return User{}, "", "", ErrInvalidCredentials
+	}
+	a, r, err := s.tokens(u)
+	return u, a, r, err
+}
+func (s *Service) tokens(u User) (string, string, error) {
+	now := time.Now()
+	mk := func(ttl time.Duration, typ string) (string, error) {
+		return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": u.ID.String(), "role": u.Role, "typ": typ, "iat": now.Unix(), "exp": now.Add(ttl).Unix()}).SignedString(s.secret)
+	}
+	a, e := mk(s.accessTTL, "access")
+	if e != nil {
+		return "", "", e
+	}
+	r, e := mk(s.refreshTTL, "refresh")
+	return a, r, e
+}
+func (s *Service) Parse(raw string) (uuid.UUID, string, error) {
+	t, e := jwt.Parse(raw, func(t *jwt.Token) (any, error) {
+		if t.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
+		return s.secret, nil
+	})
+	if e != nil || !t.Valid {
+		return uuid.Nil, "", ErrInvalidCredentials
+	}
+	sub, e := t.Claims.GetSubject()
+	if e != nil {
+		return uuid.Nil, "", ErrInvalidCredentials
+	}
+	id, e := uuid.Parse(sub)
+	if e != nil {
+		return uuid.Nil, "", ErrInvalidCredentials
+	}
+	role, _ := t.Claims.(jwt.MapClaims)["role"].(string)
+	return id, role, nil
+}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/nidao003/k12edu-backend/internal/auth"
 	"github.com/nidao003/k12edu-backend/internal/config"
 	"github.com/nidao003/k12edu-backend/internal/db"
 	"github.com/nidao003/k12edu-backend/internal/httpapi"
@@ -15,6 +16,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	var authService *auth.Service
 	if err != nil {
 		log.Printf("database disabled: %v", err)
 	} else {
@@ -22,9 +24,10 @@ func main() {
 		if err := db.Migrate(ctx, pool); err != nil {
 			log.Fatal(err)
 		}
+		authService = auth.NewService(pool, cfg.JWTSecret)
 	}
 	log.Printf("k12edu backend listening on %s", cfg.Addr)
-	if err := httpapi.NewRouter().Run(cfg.Addr); err != nil {
+	if err := httpapi.NewRouter(pool, authService).Run(cfg.Addr); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -5,6 +5,7 @@ import "os"
 type Config struct {
 	Addr        string
 	DatabaseURL string
+	JWTSecret   string
 }
 
 func Load() Config {
@@ -13,5 +14,9 @@ func Load() Config {
 		addr = ":8080"
 	}
 	databaseURL := os.Getenv("K12EDU_DATABASE_URL")
-	return Config{Addr: addr, DatabaseURL: databaseURL}
+	secret := os.Getenv("K12EDU_JWT_SECRET")
+	if secret == "" {
+		secret = "dev-only-change-me"
+	}
+	return Config{Addr: addr, DatabaseURL: databaseURL, JWTSecret: secret}
 }
