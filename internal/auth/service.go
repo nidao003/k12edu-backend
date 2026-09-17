@@ -99,6 +99,49 @@ func (s *Service) Parse(raw string) (uuid.UUID, string, error) {
 	if e != nil {
 		return uuid.Nil, "", ErrInvalidCredentials
 	}
-	role, _ := t.Claims.(jwt.MapClaims)["role"].(string)
+	claims := t.Claims.(jwt.MapClaims)
+	if typ, _ := claims["typ"].(string); typ != "access" {
+		return uuid.Nil, "", ErrInvalidCredentials
+	}
+	role, _ := claims["role"].(string)
 	return id, role, nil
+}
+
+func (s *Service) Refresh(raw string) (string, error) {
+	t, err := jwt.Parse(raw, func(t *jwt.Token) (any, error) {
+		if t.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
+		return s.secret, nil
+	})
+	if err != nil || !t.Valid {
+		return "", ErrInvalidCredentials
+	}
+	claims, ok := t.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", ErrInvalidCredentials
+	}
+	if typ, _ := claims["typ"].(string); typ != "refresh" {
+		return "", ErrInvalidCredentials
+	}
+	sub, err := t.Claims.GetSubject()
+	if err != nil {
+		return "", ErrInvalidCredentials
+	}
+	id, err := uuid.Parse(sub)
+	if err != nil {
+		return "", ErrInvalidCredentials
+	}
+	var u User
+	err = s.db.QueryRow(context.Background(), `SELECT id,email,display_name,role FROM users WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role)
+	if err != nil {
+		return "", ErrInvalidCredentials
+	}
+	a, _, err := s.tokens(u)
+	return a, err
+}
+
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.Exec(ctx, `UPDATE users SET deleted_at=NOW(), email=NULL, password_hash=NULL, updated_at=NOW() WHERE id=$1`, id)
+	return err
 }

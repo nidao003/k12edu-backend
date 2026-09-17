@@ -2,6 +2,7 @@ package auth
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"net/http"
 	"strings"
 )
@@ -42,8 +43,31 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
+func (h *Handler) Refresh(c *gin.Context) {
+	var in struct {
+		RefreshToken string `json:"refreshToken" binding:"required"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "refreshToken is required"})
+		return
+	}
+	token, err := h.service.Refresh(in.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"accessToken": token})
+}
 func (h *Handler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": gin.H{"id": c.GetString("userID"), "role": c.GetString("role")}})
+}
+func (h *Handler) DeleteAccount(c *gin.Context) {
+	id, err := uuid.Parse(c.GetString("userID"))
+	if err != nil || h.service.Delete(c, id) != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete account failed"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 func (h *Handler) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {

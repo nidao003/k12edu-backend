@@ -29,7 +29,9 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		a := v1.Group("/auth")
 		a.POST("/register", h.Register)
 		a.POST("/login", h.Login)
+		a.POST("/refresh", h.Refresh)
 		v1.GET("/me", h.RequireAuth(), h.Me)
+		v1.DELETE("/me", h.RequireAuth(), h.DeleteAccount)
 		if pool != nil {
 			sh := syncapi.NewHandler(pool)
 			protected := v1.Group("/sync", h.RequireAuth())
