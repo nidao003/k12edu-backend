@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"net/http"
@@ -118,7 +119,40 @@ func (h *Handler) Export(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "user not found"})
 		return
 	}
-	c.JSON(200, gin.H{"user": u})
+	data := gin.H{"user": u}
+	var progress json.RawMessage
+	if h.service.db.QueryRow(c, `SELECT payload FROM learning_progress WHERE user_id=$1`, id).Scan(&progress) == nil {
+		data["progress"] = progress
+	}
+	devices := []gin.H{}
+	rows, _ := h.service.db.Query(c, `SELECT id,platform,name,last_seen_at FROM devices WHERE user_id=$1`, id)
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var did, platform, name string
+			var seen any
+			if rows.Scan(&did, &platform, &name, &seen) == nil {
+				devices = append(devices, gin.H{"id": did, "platform": platform, "name": name, "lastSeenAt": seen})
+			}
+		}
+	}
+	data["devices"] = devices
+	c.JSON(200, data)
+}
+func (h *Handler) HardDelete(c *gin.Context) {
+	id, e := uuid.Parse(c.GetString("userID"))
+	var in struct {
+		Confirm string `json:"confirm"`
+	}
+	if e != nil || c.ShouldBindJSON(&in) != nil || in.Confirm != "DELETE MY ACCOUNT" {
+		c.JSON(400, gin.H{"error": "confirm must equal DELETE MY ACCOUNT"})
+		return
+	}
+	if h.service.HardDelete(c, id) != nil {
+		c.JSON(500, gin.H{"error": "hard delete failed"})
+		return
+	}
+	c.Status(204)
 }
 func (h *Handler) DeleteAccount(c *gin.Context) {
 	id, err := uuid.Parse(c.GetString("userID"))

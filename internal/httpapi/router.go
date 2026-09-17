@@ -61,6 +61,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		v1.POST("/me/password", h.RequireAuth(), h.ChangePassword)
 		v1.GET("/me/export", h.RequireAuth(), h.Export)
 		v1.DELETE("/me", h.RequireAuth(), h.DeleteAccount)
+		v1.DELETE("/me/permanent", h.RequireAuth(), h.HardDelete)
 		if store, err := storage.NewLocal("./data/files"); err == nil && pool != nil {
 			files := storageHandler{store: store, db: pool}
 			v1.POST("/me/files", h.RequireAuth(), files.Upload)
