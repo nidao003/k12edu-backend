@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type Handler struct{ service *Service }
@@ -229,6 +230,47 @@ func (h *Handler) Export(c *gin.Context) {
 		}
 	}
 	data["devices"] = devices
+	files := []gin.H{}
+	if rows, err := h.service.db.Query(c, `SELECT id,name,size_bytes,content_type,safety_status,created_at FROM user_files WHERE user_id=$1 ORDER BY created_at`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var fid, name, typ, status string
+			var size int64
+			var created any
+			if rows.Scan(&fid, &name, &size, &typ, &status, &created) == nil {
+				files = append(files, gin.H{"id": fid, "name": name, "size": size, "contentType": typ, "safetyStatus": status, "createdAt": created})
+			}
+		}
+	}
+	data["files"] = files
+	usage := []gin.H{}
+	if rows, err := h.service.db.Query(c, `SELECT model,provider_status,input_tokens,output_tokens,cost_micros,created_at FROM ai_usage WHERE user_id=$1 ORDER BY created_at`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var model string
+			var status, inTok, outTok int
+			var cost int64
+			var created any
+			if rows.Scan(&model, &status, &inTok, &outTok, &cost, &created) == nil {
+				usage = append(usage, gin.H{"model": model, "providerStatus": status, "inputTokens": inTok, "outputTokens": outTok, "costMicros": cost, "createdAt": created})
+			}
+		}
+	}
+	data["aiUsage"] = usage
+	events := []gin.H{}
+	if rows, err := h.service.db.Query(c, `SELECT id,event_type,payload,client_created_at,created_at,deleted_at,field_timestamps FROM sync_events WHERE user_id=$1 ORDER BY created_at`, id); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var eid, typ string
+			var payload, timestamps []byte
+			var client, created time.Time
+			var deleted *time.Time
+			if rows.Scan(&eid, &typ, &payload, &client, &created, &deleted, &timestamps) == nil {
+				events = append(events, gin.H{"id": eid, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created, "deletedAt": deleted, "fieldTimestamps": json.RawMessage(timestamps)})
+			}
+		}
+	}
+	data["syncEvents"] = events
 	c.JSON(200, data)
 }
 func (h *Handler) HardDelete(c *gin.Context) {
