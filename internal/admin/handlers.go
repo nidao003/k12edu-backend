@@ -55,3 +55,23 @@ func (h *Handler) Users(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"users": out})
 }
+
+func (h *Handler) AIUsage(c *gin.Context) {
+	rows, e := h.db.Query(c, `SELECT model,COUNT(*),COALESCE(SUM(input_bytes),0),COALESCE(SUM(output_bytes),0) FROM ai_usage WHERE created_at>NOW()-INTERVAL '30 days' GROUP BY model ORDER BY COUNT(*) DESC`)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := make([]gin.H, 0)
+	for rows.Next() {
+		var model string
+		var calls, inBytes, outBytes int64
+		if e := rows.Scan(&model, &calls, &inBytes, &outBytes); e != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"model": model, "calls": calls, "inputBytes": inBytes, "outputBytes": outBytes})
+	}
+	c.JSON(200, gin.H{"items": out})
+}

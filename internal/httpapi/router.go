@@ -56,6 +56,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes := v1.Group("/admin", h.RequireAuth(), admin.RequireAdmin())
 			adminRoutes.GET("/stats", ah.Stats)
 			adminRoutes.GET("/users", ah.Users)
+			adminRoutes.GET("/ai-usage", ah.AIUsage)
 		}
 		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
