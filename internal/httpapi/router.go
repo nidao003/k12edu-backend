@@ -84,6 +84,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		a.POST("/refresh", h.Refresh)
 		a.POST("/revoke", h.Revoke)
 		v1.GET("/me", h.RequireAuth(), h.Me)
+		v1.GET("/me/sessions", h.RequireAuth(), h.Sessions)
+		v1.DELETE("/me/sessions/:id", h.RequireAuth(), h.RevokeSession)
 		v1.POST("/me/password", h.RequireAuth(), h.ChangePassword)
 		v1.POST("/me/apple/link", h.RequireAuth(), h.LinkApple)
 		v1.DELETE("/me/apple", h.RequireAuth(), h.UnlinkApple)

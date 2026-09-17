@@ -152,6 +152,42 @@ func (h *Handler) Revoke(c *gin.Context) {
 func (h *Handler) Me(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": gin.H{"id": c.GetString("userID"), "role": c.GetString("role")}})
 }
+func (h *Handler) Sessions(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	rows, err := h.service.db.Query(c, `SELECT id,expires_at,created_at,revoked_at FROM auth_sessions WHERE user_id=$1 ORDER BY created_at DESC`, uid)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id string
+		var expires, created, revoked any
+		if rows.Scan(&id, &expires, &created, &revoked) == nil {
+			out = append(out, gin.H{"id": id, "expiresAt": expires, "createdAt": created, "revokedAt": revoked, "current": false})
+		}
+	}
+	c.JSON(200, gin.H{"sessions": out})
+}
+func (h *Handler) RevokeSession(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	sid, sidErr := uuid.Parse(c.Param("id"))
+	if err != nil || sidErr != nil {
+		c.JSON(400, gin.H{"error": "invalid session"})
+		return
+	}
+	tag, err := h.service.db.Exec(c, `UPDATE auth_sessions SET revoked_at=NOW() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, sid, uid)
+	if err != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "session not found"})
+		return
+	}
+	c.Status(204)
+}
 func (h *Handler) ChangePassword(c *gin.Context) {
 	id, e := uuid.Parse(c.GetString("userID"))
 	var in struct {
