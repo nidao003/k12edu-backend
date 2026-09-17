@@ -1,16 +1,28 @@
 package content
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"net/http"
+	"time"
 )
 
-type Handler struct{ db *pgxpool.Pool }
+type Handler struct {
+	db    *pgxpool.Pool
+	cache *redis.Client
+}
 
-func NewHandler(db *pgxpool.Pool) *Handler { return &Handler{db: db} }
+func NewHandler(db *pgxpool.Pool, cache ...*redis.Client) *Handler {
+	var rdb *redis.Client
+	if len(cache) > 0 {
+		rdb = cache[0]
+	}
+	return &Handler{db: db, cache: rdb}
+}
 
 type input struct {
 	Kind       string          `json:"kind" binding:"required"`
@@ -46,6 +58,13 @@ func (h *Handler) List(c *gin.Context) {
 
 func (h *Handler) Published(c *gin.Context) {
 	kind := c.Query("kind")
+	key := "k12edu:content:published:" + kind
+	if h.cache != nil {
+		if raw, err := h.cache.Get(c, key).Bytes(); err == nil {
+			c.Data(200, "application/json", raw)
+			return
+		}
+	}
 	rows, err := h.db.Query(c, `SELECT id,kind,external_id,title,payload,published,updated_at FROM content_items WHERE published=true AND ($1='' OR kind=$1) ORDER BY updated_at DESC LIMIT 500`, kind)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
@@ -65,7 +84,27 @@ func (h *Handler) Published(c *gin.Context) {
 		}
 		out = append(out, gin.H{"id": id, "kind": k, "externalId": eid, "title": title, "payload": json.RawMessage(payload), "published": pub, "updatedAt": updated})
 	}
-	c.JSON(200, gin.H{"items": out})
+	response, _ := json.Marshal(gin.H{"items": out})
+	if h.cache != nil {
+		_ = h.cache.Set(c, key, response, 5*time.Minute).Err()
+	}
+	c.Data(200, "application/json", response)
+}
+
+func (h *Handler) InvalidateCache(kind string) {
+	if h.cache != nil {
+		_ = h.cache.Del(context.Background(), "k12edu:content:published:"+kind).Err()
+	}
+}
+func (h *Handler) InvalidateAll() {
+	if h.cache == nil {
+		return
+	}
+	ctx := context.Background()
+	iter := h.cache.Scan(ctx, 0, "k12edu:content:published:*", 0).Iterator()
+	for iter.Next(ctx) {
+		_ = h.cache.Del(ctx, iter.Val()).Err()
+	}
 }
 func (h *Handler) Create(c *gin.Context) {
 	var in input
@@ -80,6 +119,7 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"id": id})
+	h.InvalidateAll()
 }
 func (h *Handler) Update(c *gin.Context) {
 	id, e := uuid.Parse(c.Param("id"))
@@ -98,6 +138,7 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.InvalidateAll()
 }
 func (h *Handler) Delete(c *gin.Context) {
 	id, e := uuid.Parse(c.Param("id"))
@@ -111,4 +152,5 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.InvalidateAll()
 }

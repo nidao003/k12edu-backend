@@ -44,7 +44,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.GET("/events", sh.Events)
 		}
 		if pool != nil {
-			ch := content.NewHandler(pool)
+			ch := content.NewHandler(pool, rdb...)
 			v1.GET("/content", ch.Published)
 			contentRoutes := v1.Group("/admin/content", h.RequireAuth(), admin.RequireAdmin())
 			contentRoutes.GET("", ch.List)
