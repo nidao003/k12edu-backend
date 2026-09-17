@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"github.com/google/uuid"
 	"net/http"
 	"time"
@@ -40,7 +41,29 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 	})
 
 	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "k12edu-backend", "time": time.Now().UTC()})
+		status := http.StatusOK
+		checks := gin.H{"database": "disabled", "redis": "disabled", "ai": "disabled"}
+		if pool != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second)
+			if err := pool.Ping(ctx); err != nil {
+				checks["database"] = "unavailable"
+				status = http.StatusServiceUnavailable
+			} else {
+				checks["database"] = "ok"
+			}
+			cancel()
+		}
+		if len(rdb) > 0 && rdb[0] != nil {
+			if err := rdb[0].Ping(c).Err(); err != nil {
+				checks["redis"] = "unavailable"
+			} else {
+				checks["redis"] = "ok"
+			}
+		}
+		if aiBaseURL != "" && aiAPIKey != "" {
+			checks["ai"] = "configured"
+		}
+		c.JSON(status, gin.H{"status": map[bool]string{true: "ok", false: "degraded"}[status == http.StatusOK], "service": "k12edu-backend", "checks": checks, "time": time.Now().UTC()})
 	})
 	r.GET("/metrics", Metrics)
 	r.StaticFile("/openapi.yaml", "openapi.yaml")
