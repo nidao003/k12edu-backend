@@ -194,6 +194,21 @@ func (h *Handler) Chat(c *gin.Context) {
 		month := time.Now().UTC().Format("2006-01")
 		inTok := len(body) / 4
 		outTok := len(data) / 4
+		var usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		}
+		var providerPayload struct {
+			Usage usage `json:"usage"`
+		}
+		if json.Unmarshal(data, &providerPayload) == nil {
+			if providerPayload.Usage.PromptTokens > 0 {
+				inTok = providerPayload.Usage.PromptTokens
+			}
+			if providerPayload.Usage.CompletionTokens > 0 {
+				outTok = providerPayload.Usage.CompletionTokens
+			}
+		}
 		inputCost, outputCost := h.inputCost, h.outputCost
 		_ = h.db.QueryRow(c, `SELECT COALESCE(p.input_cost_micros_per_1k,$2),COALESCE(p.output_cost_micros_per_1k,$3) FROM users u LEFT JOIN ai_plans p ON p.id=u.ai_plan_id WHERE u.id=$1`, uid, h.inputCost, h.outputCost).Scan(&inputCost, &outputCost)
 		cost := int64((inTok*inputCost + outTok*outputCost) / 1000)
