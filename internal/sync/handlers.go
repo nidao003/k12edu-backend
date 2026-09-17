@@ -91,9 +91,9 @@ func (h *Handler) Events(c *gin.Context) {
 	after := c.Query("after")
 	var rows pgx.Rows
 	if after == "" {
-		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 ORDER BY created_at LIMIT 500`, uid)
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL ORDER BY created_at LIMIT 500`, uid)
 	} else {
-		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND created_at>$2::timestamptz ORDER BY created_at LIMIT 500`, uid, after)
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL AND created_at>$2::timestamptz ORDER BY created_at LIMIT 500`, uid, after)
 	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
@@ -114,6 +114,58 @@ func (h *Handler) Events(c *gin.Context) {
 		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created})
 	}
 	c.JSON(200, gin.H{"events": out})
+}
+
+func (h *Handler) ArchiveEvents(c *gin.Context) {
+	uid, e := uuid.Parse(c.GetString("userID"))
+	if e != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	before := c.Query("before")
+	if before == "" {
+		c.JSON(400, gin.H{"error": "before is required"})
+		return
+	}
+	tag, e := h.db.Exec(c, `UPDATE sync_events SET archived_at=NOW() WHERE user_id=$1 AND created_at<$2::timestamptz AND archived_at IS NULL`, uid, before)
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid archive time"})
+		return
+	}
+	c.JSON(200, gin.H{"archived": tag.RowsAffected()})
+}
+
+func (h *Handler) ReplayEvents(c *gin.Context) {
+	uid, e := uuid.Parse(c.GetString("userID"))
+	if e != nil {
+		c.JSON(401, gin.H{"error": "invalid user"})
+		return
+	}
+	from := c.Query("from")
+	if from == "" {
+		c.JSON(400, gin.H{"error": "from is required"})
+		return
+	}
+	rows, e := h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND created_at>=$2::timestamptz ORDER BY created_at LIMIT 5000`, uid, from)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id uuid.UUID
+		var device *uuid.UUID
+		var typ string
+		var payload []byte
+		var client, created time.Time
+		if e := rows.Scan(&id, &device, &typ, &payload, &client, &created); e != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created})
+	}
+	c.JSON(200, gin.H{"events": out, "replay": true})
 }
 
 func (h *Handler) GetProgress(c *gin.Context) {

@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS sync_events (
     event_type TEXT NOT NULL,
     payload JSONB NOT NULL,
     client_created_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at TIMESTAMPTZ
 );
+ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_sync_events_user_created ON sync_events(user_id, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (
@@ -51,7 +53,11 @@ CREATE TABLE IF NOT EXISTS content_items (
 );
 CREATE INDEX IF NOT EXISTS idx_content_items_kind_published ON content_items(kind, published);
 CREATE TABLE IF NOT EXISTS ai_policies (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,period TEXT NOT NULL,request_count INT NOT NULL DEFAULT 0,input_tokens INT NOT NULL DEFAULT 0,output_tokens INT NOT NULL DEFAULT 0,cost_micros BIGINT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,period));
-CREATE TABLE IF NOT EXISTS ai_safety_events (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,reason TEXT NOT NULL,content_hash TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS ai_safety_events (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,reason TEXT NOT NULL,content_hash TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',reviewer_id UUID REFERENCES users(id),decision TEXT NOT NULL DEFAULT '',reviewed_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open';
+ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS reviewer_id UUID REFERENCES users(id);
+ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS decision TEXT NOT NULL DEFAULT '';
+ALTER TABLE ai_safety_events ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_ai_policies_period ON ai_policies(period);
 CREATE TABLE IF NOT EXISTS auth_sessions (id UUID PRIMARY KEY,user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,refresh_token_hash TEXT NOT NULL UNIQUE,device_id UUID REFERENCES devices(id) ON DELETE SET NULL,expires_at TIMESTAMPTZ NOT NULL,revoked_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id,revoked_at);

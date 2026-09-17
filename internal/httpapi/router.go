@@ -76,6 +76,8 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.POST("/devices", sh.RegisterDevice)
 			protected.GET("/events", sh.Events)
 			protected.POST("/cursor", sh.Acknowledge)
+			protected.POST("/events/archive", sh.ArchiveEvents)
+			protected.GET("/events/replay", sh.ReplayEvents)
 		}
 		if pool != nil {
 			ch := content.NewHandler(pool, rdb...)
@@ -94,6 +96,9 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.GET("/ai-usage", ah.AIUsage)
 			adminRoutes.GET("/ai-safety-events", ah.AISafetyEvents)
 			adminRoutes.GET("/audit-logs", ah.AuditLogs)
+			adminRoutes.GET("/ai-plans", ah.Plans)
+			adminRoutes.POST("/ai-plans", ah.UpsertPlan)
+			adminRoutes.PATCH("/ai-safety-events/:id", ah.ReviewSafety)
 			adminRoutes.PATCH("/users/:id/role", ah.SetRole)
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
 		}

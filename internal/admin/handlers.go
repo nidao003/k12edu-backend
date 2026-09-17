@@ -79,7 +79,7 @@ func (h *Handler) AIUsage(c *gin.Context) {
 }
 
 func (h *Handler) AISafetyEvents(c *gin.Context) {
-	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
+	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,status,decision,reviewed_at,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -87,15 +87,75 @@ func (h *Handler) AISafetyEvents(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var id, uid, reason, hash string
-		var created any
-		if e := rows.Scan(&id, &uid, &reason, &hash, &created); e != nil {
+		var id, uid, reason, hash, status, decision string
+		var reviewed, created any
+		if e := rows.Scan(&id, &uid, &reason, &hash, &status, &decision, &reviewed, &created); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "userId": uid, "reason": reason, "contentHash": hash, "createdAt": created})
+		out = append(out, gin.H{"id": id, "userId": uid, "reason": reason, "contentHash": hash, "status": status, "decision": decision, "reviewedAt": reviewed, "createdAt": created})
 	}
 	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) ReviewSafety(c *gin.Context) {
+	id, e := uuid.Parse(c.Param("id"))
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	reviewer, e := uuid.Parse(c.GetString("userID"))
+	var in struct {
+		Status   string `json:"status"`
+		Decision string `json:"decision"`
+	}
+	if e != nil || c.ShouldBindJSON(&in) != nil || (in.Status != "approved" && in.Status != "rejected" && in.Status != "escalated") {
+		c.JSON(400, gin.H{"error": "invalid review"})
+		return
+	}
+	tag, e := h.db.Exec(c, `UPDATE ai_safety_events SET status=$2,decision=$3,reviewer_id=$4,reviewed_at=NOW() WHERE id=$1`, id, in.Status, in.Decision, reviewer)
+	if e != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "event not found"})
+		return
+	}
+	c.Status(204)
+}
+
+func (h *Handler) Plans(c *gin.Context) {
+	rows, e := h.db.Query(c, `SELECT id,name,monthly_requests,input_cost_micros_per_1k,output_cost_micros_per_1k FROM ai_plans ORDER BY name`)
+	if e != nil {
+		c.JSON(500, gin.H{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var id, name string
+		var quota, inCost, outCost int
+		if e := rows.Scan(&id, &name, &quota, &inCost, &outCost); e != nil {
+			c.JSON(500, gin.H{"error": "scan failed"})
+			return
+		}
+		out = append(out, gin.H{"id": id, "name": name, "monthlyRequests": quota, "inputCostMicrosPer1K": inCost, "outputCostMicrosPer1K": outCost})
+	}
+	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) UpsertPlan(c *gin.Context) {
+	var in struct {
+		Name                                                         string `json:"name"`
+		MonthlyRequests, InputCostMicrosPer1K, OutputCostMicrosPer1K int
+	}
+	if c.ShouldBindJSON(&in) != nil || in.Name == "" || in.MonthlyRequests < 0 || in.InputCostMicrosPer1K < 0 || in.OutputCostMicrosPer1K < 0 {
+		c.JSON(400, gin.H{"error": "invalid plan"})
+		return
+	}
+	_, e := h.db.Exec(c, `INSERT INTO ai_plans(id,name,monthly_requests,input_cost_micros_per_1k,output_cost_micros_per_1k) VALUES($1,$2,$3,$4,$5) ON CONFLICT(name) DO UPDATE SET monthly_requests=EXCLUDED.monthly_requests,input_cost_micros_per_1k=EXCLUDED.input_cost_micros_per_1k,output_cost_micros_per_1k=EXCLUDED.output_cost_micros_per_1k`, uuid.New(), in.Name, in.MonthlyRequests, in.InputCostMicrosPer1K, in.OutputCostMicrosPer1K)
+	if e != nil {
+		c.JSON(409, gin.H{"error": "plan already exists or invalid"})
+		return
+	}
+	c.Status(201)
 }
 
 func (h *Handler) AuditLogs(c *gin.Context) {
