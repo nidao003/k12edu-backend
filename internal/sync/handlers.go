@@ -222,8 +222,10 @@ func (h *Handler) AppendEvents(c *gin.Context) {
 		return
 	}
 	accepted := 0
+	failed := make([]string, 0)
 	for _, e := range events {
 		if e.EventType == "" || len(e.Payload) == 0 || !json.Valid(e.Payload) {
+			failed = append(failed, e.ID)
 			continue
 		}
 		id, er := uuid.Parse(e.ID)
@@ -241,7 +243,9 @@ func (h *Handler) AppendEvents(c *gin.Context) {
 		_, er = h.db.Exec(c, `INSERT INTO sync_events(id,user_id,device_id,event_type,payload,client_created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING`, id, uid, device, e.EventType, e.Payload, created)
 		if er == nil {
 			accepted++
+		} else {
+			failed = append(failed, e.ID)
 		}
 	}
-	c.JSON(http.StatusAccepted, gin.H{"accepted": accepted, "received": len(events)})
+	c.JSON(http.StatusAccepted, gin.H{"accepted": accepted, "received": len(events), "failed": failed, "retryable": len(failed) > 0})
 }

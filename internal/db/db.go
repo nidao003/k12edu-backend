@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS sync_events (
  payload JSONB NOT NULL, client_created_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ
 );
 ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS retry_count INT NOT NULL DEFAULT 0;
+ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_sync_events_user_created ON sync_events(user_id, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (
  id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
