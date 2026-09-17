@@ -12,6 +12,10 @@ import (
 
 type Handler struct{ db *pgxpool.Pool }
 
+func (h *Handler) audit(c *gin.Context, action, resource string, userID any) {
+	_, _ = h.db.Exec(c, `INSERT INTO audit_logs(id,user_id,action,resource,ip) VALUES($1,$2,$3,$4,$5)`, uuid.New(), userID, action, resource, c.ClientIP())
+}
+
 func NewHandler(db *pgxpool.Pool) *Handler { return &Handler{db: db} }
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -137,6 +141,7 @@ func (h *Handler) ReviewSafety(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.audit(c, "ai.safety.review", id.String(), reviewer)
 }
 
 func (h *Handler) Plans(c *gin.Context) {
@@ -200,6 +205,7 @@ func (h *Handler) AssignPlan(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.audit(c, "user.ai_plan.update", uid.String(), uuid.MustParse(c.GetString("userID")))
 }
 
 func (h *Handler) AuditLogs(c *gin.Context) {
@@ -243,6 +249,7 @@ func (h *Handler) SetRole(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.audit(c, "user.role.update", id.String(), uuid.MustParse(c.GetString("userID")))
 }
 func (h *Handler) SetDisabled(c *gin.Context) {
 	id, e := uuid.Parse(c.Param("id"))
@@ -268,4 +275,5 @@ func (h *Handler) SetDisabled(c *gin.Context) {
 		return
 	}
 	c.Status(204)
+	h.audit(c, "user.disabled.update", id.String(), uuid.MustParse(c.GetString("userID")))
 }
