@@ -8,3 +8,10 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.25' }
       - run: go build ./...
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: 'npm', cache-dependency-path: admin/package-lock.json }
+      - name: Build offline admin
+        working-directory: admin
+        run: npm ci && npm run build
+      - name: Build container
+        run: docker build --tag k12edu-backend:ci .
