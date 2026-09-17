@@ -114,6 +114,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, aiQuota, aiInputCost, aiOutputCost, rdb...)
 		v1.GET("/ai/health", h.RequireAuth(), aiHandler.Health)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
+		v1.POST("/ai/safety/:id/appeal", h.RequireAuth(), aiHandler.AppealSafety)
 	}
 
 	r.GET("/admin", func(c *gin.Context) { adminPage(c) })

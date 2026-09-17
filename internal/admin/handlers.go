@@ -101,7 +101,7 @@ func (h *Handler) AIUsage(c *gin.Context) {
 }
 
 func (h *Handler) AISafetyEvents(c *gin.Context) {
-	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,status,decision,reviewed_at,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
+	rows, e := h.db.Query(c, `SELECT id,user_id,reason,content_hash,status,decision,severity,appeal_status,reviewed_at,created_at FROM ai_safety_events ORDER BY created_at DESC LIMIT 200`)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -109,13 +109,13 @@ func (h *Handler) AISafetyEvents(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var id, uid, reason, hash, status, decision string
+		var id, uid, reason, hash, status, decision, severity, appeal string
 		var reviewed, created any
-		if e := rows.Scan(&id, &uid, &reason, &hash, &status, &decision, &reviewed, &created); e != nil {
+		if e := rows.Scan(&id, &uid, &reason, &hash, &status, &decision, &severity, &appeal, &reviewed, &created); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "userId": uid, "reason": reason, "contentHash": hash, "status": status, "decision": decision, "reviewedAt": reviewed, "createdAt": created})
+		out = append(out, gin.H{"id": id, "userId": uid, "reason": reason, "contentHash": hash, "status": status, "decision": decision, "severity": severity, "appealStatus": appeal, "reviewedAt": reviewed, "createdAt": created})
 	}
 	c.JSON(200, gin.H{"items": out})
 }

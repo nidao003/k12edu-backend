@@ -48,6 +48,25 @@ func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ready", "failures": failures})
 }
 
+func (h *Handler) AppealSafety(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid event"})
+		return
+	}
+	tag, err := h.db.Exec(c, `UPDATE ai_safety_events SET appeal_status='pending' WHERE id=$1 AND user_id=$2 AND status IN ('rejected','escalated')`, id, uid)
+	if err != nil || tag.RowsAffected() == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "appeal is not available"})
+		return
+	}
+	c.Status(http.StatusAccepted)
+}
+
 func NewHandler(baseURL, apiKey string, pool *pgxpool.Pool, quota, inputCost, outputCost int, rdb ...*redis.Client) *Handler {
 	var client *redis.Client
 	if len(rdb) > 0 {
