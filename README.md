@@ -9,7 +9,7 @@
 - 多设备注册、增量事件、版本保护、递归三方合并、数组去重
 - AI Provider 网关、请求限流、月度配额、token/费用累计、敏感请求拦截、安全事件审计
 - 用户、内容、AI 用量、安全审核、审计日志管理接口
-- Vue 3 + Element Plus 管理后台：`/admin/`
+- Vue 3 + Element Plus 管理后台：`/admin/`，构建产物已提交，可离线运行
 - Docker Compose：PostgreSQL、Redis、API
 
 ## 关键环境变量
@@ -19,11 +19,15 @@
 ## 主要接口
 
 - `POST /api/v1/auth/apple`
+- `POST /api/v1/me/apple/link`、`DELETE /api/v1/me/apple`
 - `POST /api/v1/sync/merge`
+- `POST /api/v1/sync/events/compact?before=...`
 - `GET|PUT /api/v1/sync/progress`
 - `POST /api/v1/ai/chat/completions`
 - `GET /api/v1/admin/stats`
 - `GET /api/v1/admin/ai-usage`
+- `GET /api/v1/admin/ai-billing`
+- `POST /api/v1/admin/users/:id/ai-credit`
 - `GET /api/v1/admin/ai-safety-events`
 - `GET /api/v1/admin/audit-logs`
 
