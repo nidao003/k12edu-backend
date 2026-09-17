@@ -231,10 +231,12 @@ func (s *Service) consumeToken(ctx context.Context, raw, purpose, sql string) er
 func (s *Service) Login(ctx context.Context, email, password string) (User, string, string, error) {
 	var u User
 	var hash string
-	err := s.db.QueryRow(ctx, `SELECT id,email,display_name,role,password_hash FROM users WHERE email=$1 AND deleted_at IS NULL`, strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &hash)
+	err := s.db.QueryRow(ctx, `SELECT id,email,display_name,role,password_hash FROM users WHERE email=$1 AND deleted_at IS NULL AND (locked_until IS NULL OR locked_until<NOW())`, strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &hash)
 	if errors.Is(err, pgx.ErrNoRows) || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		_, _ = s.db.Exec(ctx, `UPDATE users SET login_failures=login_failures+1,locked_until=CASE WHEN login_failures+1>=5 THEN NOW()+INTERVAL '15 minutes' ELSE locked_until END WHERE email=$1 AND deleted_at IS NULL`, strings.ToLower(strings.TrimSpace(email)))
 		return User{}, "", "", ErrInvalidCredentials
 	}
+	_, _ = s.db.Exec(ctx, `UPDATE users SET login_failures=0,locked_until=NULL WHERE id=$1`, u.ID)
 	a, r, err := s.tokens(u)
 	return u, a, r, err
 }
