@@ -49,7 +49,7 @@ func main() {
 		}
 	}
 	log.Printf("k12edu backend listening on %s", cfg.Addr)
-	if err := httpapi.NewRouter(pool, authService, cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIMonthlyRequests, cfg.AIInputCostMicrosPer1K, cfg.AIOutputCostMicrosPer1K, rdb).Run(cfg.Addr); err != nil {
+	if err := httpapi.NewRouter(pool, authService, cfg.AIBaseURL, cfg.AIAPIKey, cfg.AIMonthlyRequests, cfg.AIInputCostMicrosPer1K, cfg.AIOutputCostMicrosPer1K, cfg.AIMonthlyCostLimitMicros, rdb).Run(cfg.Addr); err != nil {
 		log.Fatal(err)
 	}
 }

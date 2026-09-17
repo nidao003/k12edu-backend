@@ -28,6 +28,7 @@ type Handler struct {
 	recent                map[string][]time.Time
 	monthlyQuota          int
 	inputCost, outputCost int
+	monthlyCostLimit      int
 	providerFailures      int
 	providerOpenUntil     time.Time
 }
@@ -67,12 +68,23 @@ func (h *Handler) AppealSafety(c *gin.Context) {
 	c.Status(http.StatusAccepted)
 }
 
-func NewHandler(baseURL, apiKey string, pool *pgxpool.Pool, quota, inputCost, outputCost int, rdb ...*redis.Client) *Handler {
+func NewHandler(baseURL, apiKey string, pool *pgxpool.Pool, quota, inputCost, outputCost, monthlyCostLimit int, rdb ...*redis.Client) *Handler {
 	var client *redis.Client
 	if len(rdb) > 0 {
 		client = rdb[0]
 	}
-	return &Handler{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: &http.Client{Timeout: 90 * time.Second}, db: pool, redis: client, recent: map[string][]time.Time{}, monthlyQuota: quota, inputCost: inputCost, outputCost: outputCost}
+	return &Handler{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, client: &http.Client{Timeout: 90 * time.Second}, db: pool, redis: client, recent: map[string][]time.Time{}, monthlyQuota: quota, inputCost: inputCost, outputCost: outputCost, monthlyCostLimit: monthlyCostLimit}
+}
+
+func (h *Handler) withinCostLimit(c *gin.Context, uid uuid.UUID) bool {
+	if h.db == nil || h.monthlyCostLimit <= 0 {
+		return true
+	}
+	var spent int64
+	if err := h.db.QueryRow(c, `SELECT COALESCE(cost_micros,0) FROM ai_policies WHERE user_id=$1 AND period=$2`, uid, time.Now().UTC().Format("2006-01")).Scan(&spent); err != nil {
+		return true
+	}
+	return spent < int64(h.monthlyCostLimit)
 }
 
 func (h *Handler) admit(c *gin.Context, uid uuid.UUID) bool {
@@ -206,6 +218,10 @@ func (h *Handler) Chat(c *gin.Context) {
 	}
 	if !h.admit(c, uid) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"code": "AI_QUOTA_EXCEEDED", "error": "monthly AI quota exceeded"})
+		return
+	}
+	if !h.withinCostLimit(c, uid) {
+		c.JSON(http.StatusPaymentRequired, gin.H{"code": "AI_COST_LIMIT_EXCEEDED", "error": "monthly AI cost limit exceeded"})
 		return
 	}
 	req, e := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, h.baseURL+"/v1/chat/completions", bytes.NewReader(body))

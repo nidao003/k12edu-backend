@@ -16,7 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string, aiQuota, aiInputCost, aiOutputCost int, rdb ...*redis.Client) *gin.Engine {
+func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKey string, aiQuota, aiInputCost, aiOutputCost, aiMonthlyCostLimit int, rdb ...*redis.Client) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 	r.Use(MetricsMiddleware())
@@ -111,7 +111,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			adminRoutes.PATCH("/users/:id/role", ah.SetRole)
 			adminRoutes.PATCH("/users/:id/disabled", ah.SetDisabled)
 		}
-		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, aiQuota, aiInputCost, aiOutputCost, rdb...)
+		aiHandler := ai.NewHandler(aiBaseURL, aiAPIKey, pool, aiQuota, aiInputCost, aiOutputCost, aiMonthlyCostLimit, rdb...)
 		v1.GET("/ai/health", h.RequireAuth(), aiHandler.Health)
 		v1.POST("/ai/chat/completions", h.RequireAuth(), aiHandler.Chat)
 		v1.POST("/ai/safety/:id/appeal", h.RequireAuth(), aiHandler.AppealSafety)
