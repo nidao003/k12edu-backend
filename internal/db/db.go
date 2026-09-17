@@ -56,4 +56,11 @@ CREATE TABLE IF NOT EXISTS ai_usage (
  input_bytes INT NOT NULL DEFAULT 0, output_bytes INT NOT NULL DEFAULT 0,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage(user_id, created_at);`
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created ON ai_usage(user_id, created_at);
+CREATE TABLE IF NOT EXISTS content_items (
+ id UUID PRIMARY KEY, kind TEXT NOT NULL, external_id TEXT NOT NULL DEFAULT '',
+ title TEXT NOT NULL, payload JSONB NOT NULL, published BOOLEAN NOT NULL DEFAULT FALSE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE(kind, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_content_items_kind_published ON content_items(kind, published);`

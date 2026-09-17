@@ -9,6 +9,7 @@ import (
 	"github.com/nidao003/k12edu-backend/internal/admin"
 	"github.com/nidao003/k12edu-backend/internal/ai"
 	"github.com/nidao003/k12edu-backend/internal/auth"
+	"github.com/nidao003/k12edu-backend/internal/content"
 	syncapi "github.com/nidao003/k12edu-backend/internal/sync"
 )
 
@@ -38,6 +39,15 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 			protected.GET("/progress", sh.GetProgress)
 			protected.PUT("/progress", sh.PutProgress)
 			protected.POST("/events", sh.AppendEvents)
+		}
+		if pool != nil {
+			ch := content.NewHandler(pool)
+			v1.GET("/content", ch.Published)
+			contentRoutes := v1.Group("/admin/content", h.RequireAuth(), admin.RequireAdmin())
+			contentRoutes.GET("", ch.List)
+			contentRoutes.POST("", ch.Create)
+			contentRoutes.PUT("/:id", ch.Update)
+			contentRoutes.DELETE("/:id", ch.Delete)
 		}
 		if pool != nil {
 			ah := admin.NewHandler(pool)
