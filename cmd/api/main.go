@@ -10,6 +10,7 @@ import (
 	"github.com/nidao003/k12edu-backend/internal/config"
 	"github.com/nidao003/k12edu-backend/internal/db"
 	"github.com/nidao003/k12edu-backend/internal/httpapi"
+	"github.com/nidao003/k12edu-backend/internal/mail"
 )
 
 func main() {
@@ -36,6 +37,8 @@ func main() {
 			log.Fatal(err)
 		}
 		authService = auth.NewService(pool, cfg.JWTSecret, cfg.AppleClientID)
+		mailer := mail.Sender{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom}
+		authService.SetMailer(mailer.Send)
 		if err := authService.BootstrapAdmin(ctx, cfg.AdminEmail, cfg.AdminPassword); err != nil {
 			log.Fatal(err)
 		}

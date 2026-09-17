@@ -30,7 +30,43 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 	_ = h.service.RecordSession(c, u.ID, r)
+	_, _ = h.service.issueToken(c, u.ID, "verify_email")
 	c.JSON(http.StatusCreated, gin.H{"user": u, "accessToken": a, "refreshToken": r})
+}
+func (h *Handler) VerifyEmail(c *gin.Context) {
+	var in struct {
+		Token string `json:"token"`
+	}
+	if c.ShouldBindJSON(&in) != nil || h.service.VerifyEmail(c, in.Token) != nil {
+		c.JSON(400, gin.H{"error": "invalid or expired verification token"})
+		return
+	}
+	c.Status(204)
+}
+func (h *Handler) ForgotPassword(c *gin.Context) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if c.ShouldBindJSON(&in) != nil || in.Email == "" {
+		c.JSON(400, gin.H{"error": "email is required"})
+		return
+	}
+	if h.service.RequestPasswordReset(c, in.Email) != nil {
+		c.JSON(500, gin.H{"error": "request failed"})
+		return
+	}
+	c.Status(202)
+}
+func (h *Handler) ResetPassword(c *gin.Context) {
+	var in struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if c.ShouldBindJSON(&in) != nil || h.service.ResetPassword(c, in.Token, in.Password) != nil {
+		c.JSON(400, gin.H{"error": "invalid or expired reset token"})
+		return
+	}
+	c.Status(204)
 }
 func (h *Handler) Login(c *gin.Context) {
 	var in credentials

@@ -27,6 +27,7 @@ type Service struct {
 	secret                []byte
 	accessTTL, refreshTTL time.Duration
 	appleClientID         string
+	mailer                func(string, string, string) error
 }
 type User struct {
 	ID          uuid.UUID `json:"id"`
@@ -144,6 +145,60 @@ func (s *Service) Register(ctx context.Context, email, password, name string) (U
 	}
 	a, r, err := s.tokens(u)
 	return u, a, r, err
+}
+
+func (s *Service) SetMailer(fn func(string, string, string) error) { s.mailer = fn }
+func (s *Service) issueToken(ctx context.Context, id uuid.UUID, purpose string) (string, error) {
+	raw := uuid.NewString() + uuid.NewString()
+	sum := sha256.Sum256([]byte(raw))
+	_, err := s.db.Exec(ctx, `INSERT INTO account_tokens(id,user_id,token_hash,purpose,expires_at) VALUES($1,$2,$3,$4,NOW()+INTERVAL '30 minutes')`, uuid.New(), id, fmt.Sprintf("%x", sum[:]), purpose)
+	if err == nil && s.mailer != nil {
+		var email string
+		if s.db.QueryRow(ctx, `SELECT email FROM users WHERE id=$1`, id).Scan(&email) == nil {
+			subject := "K12Edu verification"
+			if purpose == "password_reset" {
+				subject = "K12Edu password reset"
+			}
+			_ = s.mailer(email, subject, raw)
+		}
+	}
+	return raw, err
+}
+func (s *Service) VerifyEmail(ctx context.Context, raw string) error {
+	return s.consumeToken(ctx, raw, "verify_email", `UPDATE users SET email_verified_at=NOW(),updated_at=NOW() WHERE id=$1`)
+}
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
+	var id uuid.UUID
+	if err := s.db.QueryRow(ctx, `SELECT id FROM users WHERE email=$1 AND deleted_at IS NULL`, strings.ToLower(strings.TrimSpace(email))).Scan(&id); err != nil {
+		return nil
+	}
+	_, err := s.issueToken(ctx, id, "password_reset")
+	return err
+}
+func (s *Service) ResetPassword(ctx context.Context, raw, password string) error {
+	if len(password) < 8 {
+		return ErrInvalidCredentials
+	}
+	sum := sha256.Sum256([]byte(raw))
+	var id uuid.UUID
+	if err := s.db.QueryRow(ctx, `UPDATE account_tokens SET used_at=NOW() WHERE token_hash=$1 AND purpose='password_reset' AND used_at IS NULL AND expires_at>NOW() RETURNING user_id`, fmt.Sprintf("%x", sum[:])).Scan(&id); err != nil {
+		return ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `UPDATE users SET password_hash=$2,updated_at=NOW() WHERE id=$1`, id, string(hash))
+	return err
+}
+func (s *Service) consumeToken(ctx context.Context, raw, purpose, sql string) error {
+	sum := sha256.Sum256([]byte(raw))
+	var id uuid.UUID
+	if err := s.db.QueryRow(ctx, `UPDATE account_tokens SET used_at=NOW() WHERE token_hash=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>NOW() RETURNING user_id`, fmt.Sprintf("%x", sum[:]), purpose).Scan(&id); err != nil {
+		return ErrInvalidCredentials
+	}
+	_, err := s.db.Exec(ctx, sql, id)
+	return err
 }
 func (s *Service) Login(ctx context.Context, email, password string) (User, string, string, error) {
 	var u User
