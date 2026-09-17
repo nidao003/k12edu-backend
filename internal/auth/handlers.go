@@ -100,6 +100,26 @@ func (h *Handler) Apple(c *gin.Context) {
 	_ = h.service.RecordSession(c, u.ID, r)
 	c.JSON(200, gin.H{"user": u, "accessToken": a, "refreshToken": r})
 }
+func (h *Handler) LinkApple(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	var in struct {
+		IdentityToken string `json:"identityToken"`
+		Nonce         string `json:"nonce"`
+	}
+	if err != nil || c.ShouldBindJSON(&in) != nil || in.IdentityToken == "" || h.service.LinkApple(c, uid, in.IdentityToken, in.Nonce) != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Apple account cannot be linked"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+func (h *Handler) UnlinkApple(c *gin.Context) {
+	uid, err := uuid.Parse(c.GetString("userID"))
+	if err != nil || h.service.UnlinkApple(c, uid) != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Apple account cannot be unlinked"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
 func (h *Handler) Refresh(c *gin.Context) {
 	var in struct {
 		RefreshToken string `json:"refreshToken" binding:"required"`

@@ -112,8 +112,31 @@ func (s *Service) appleKey(kid string) (*rsa.PublicKey, error) {
 }
 
 func (s *Service) AppleLogin(ctx context.Context, identityToken, name, nonce string) (User, string, string, error) {
-	if s.appleClientID == "" {
-		return User{}, "", "", ErrInvalidCredentials
+	claims, sub, err := s.appleClaims(identityToken, nonce)
+	if err != nil {
+		return User{}, "", "", err
+	}
+	var u User
+	err = s.db.QueryRow(ctx, `SELECT id,COALESCE(email,''),COALESCE(display_name,''),role FROM users WHERE apple_subject=$1 AND deleted_at IS NULL`, sub).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		u = User{ID: uuid.New(), DisplayName: strings.TrimSpace(name), Role: "student"}
+		if email, _ := claims["email"].(string); email != "" {
+			if !strings.HasSuffix(strings.ToLower(email), "@privaterelay.appleid.com") {
+				u.Email = strings.ToLower(strings.TrimSpace(email))
+			}
+		}
+		_, err = s.db.Exec(ctx, `INSERT INTO users(id,email,display_name,role,apple_subject) VALUES($1,NULLIF($2,''),$3,$4,$5)`, u.ID, u.Email, u.DisplayName, u.Role, sub)
+	}
+	if err != nil {
+		return User{}, "", "", err
+	}
+	a, r, e := s.tokens(u)
+	return u, a, r, e
+}
+
+func (s *Service) appleClaims(identityToken, nonce string) (jwt.MapClaims, string, error) {
+	if s.appleClientID == "" || nonce == "" {
+		return nil, "", ErrInvalidCredentials
 	}
 	parsed, err := jwt.Parse(identityToken, func(t *jwt.Token) (any, error) {
 		if t.Method.Alg() != "RS256" {
@@ -123,44 +146,68 @@ func (s *Service) AppleLogin(ctx context.Context, identityToken, name, nonce str
 		return s.appleKey(kid)
 	})
 	if err != nil || !parsed.Valid {
-		return User{}, "", "", ErrInvalidCredentials
+		return nil, "", ErrInvalidCredentials
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
-	if !ok || claims["iss"] != "https://appleid.apple.com" || claims["aud"] != s.appleClientID {
-		return User{}, "", "", ErrInvalidCredentials
+	if !ok || claims["iss"] != "https://appleid.apple.com" {
+		return nil, "", ErrInvalidCredentials
 	}
-	if exp, ok := claims["exp"].(float64); !ok || time.Now().Unix() >= int64(exp) {
-		return User{}, "", "", ErrInvalidCredentials
+	aud, ok := claims["aud"].(string)
+	if !ok || aud != s.appleClientID {
+		return nil, "", ErrInvalidCredentials
 	}
-	if iat, ok := claims["iat"].(float64); !ok || time.Now().Add(10*time.Minute).Unix() < int64(iat) {
-		return User{}, "", "", ErrInvalidCredentials
+	now := time.Now()
+	exp, ok := claims["exp"].(float64)
+	if !ok || now.Unix() >= int64(exp) {
+		return nil, "", ErrInvalidCredentials
 	}
-	if nonce == "" {
-		return User{}, "", "", ErrInvalidCredentials
+	iat, ok := claims["iat"].(float64)
+	if !ok || now.Add(10*time.Minute).Unix() < int64(iat) {
+		return nil, "", ErrInvalidCredentials
 	}
 	claimNonce, _ := claims["nonce"].(string)
 	sum := sha256.Sum256([]byte(nonce))
 	if claimNonce != nonce && claimNonce != fmt.Sprintf("%x", sum[:]) {
-		return User{}, "", "", ErrInvalidCredentials
+		return nil, "", ErrInvalidCredentials
 	}
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
-		return User{}, "", "", ErrInvalidCredentials
+		return nil, "", ErrInvalidCredentials
 	}
-	var u User
-	err = s.db.QueryRow(ctx, `SELECT id,COALESCE(email,''),COALESCE(display_name,''),role FROM users WHERE apple_subject=$1 AND deleted_at IS NULL`, sub).Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		u = User{ID: uuid.New(), DisplayName: strings.TrimSpace(name), Role: "student"}
-		if email, _ := claims["email"].(string); email != "" {
-			u.Email = email
-		}
-		_, err = s.db.Exec(ctx, `INSERT INTO users(id,email,display_name,role,apple_subject) VALUES($1,NULLIF($2,''),$3,$4,$5)`, u.ID, u.Email, u.DisplayName, u.Role, sub)
-	}
+	return claims, sub, nil
+}
+
+func (s *Service) LinkApple(ctx context.Context, userID uuid.UUID, identityToken, nonce string) error {
+	claims, sub, err := s.appleClaims(identityToken, nonce)
 	if err != nil {
-		return User{}, "", "", err
+		return err
 	}
-	a, r, e := s.tokens(u)
-	return u, a, r, e
+	var email string
+	_ = s.db.QueryRow(ctx, `SELECT email FROM users WHERE id=$1 AND deleted_at IS NULL`, userID).Scan(&email)
+	appleEmail, _ := claims["email"].(string)
+	if strings.Contains(strings.ToLower(appleEmail), "privaterelay.appleid.com") {
+		appleEmail = ""
+	}
+	var owner uuid.UUID
+	if err = s.db.QueryRow(ctx, `SELECT id FROM users WHERE apple_subject=$1 AND deleted_at IS NULL`, sub).Scan(&owner); err == nil && owner != userID {
+		return errors.New("apple account already linked")
+	}
+	if appleEmail != "" && strings.EqualFold(email, appleEmail) == false {
+		if err = s.db.QueryRow(ctx, `SELECT id FROM users WHERE lower(email)=lower($1) AND deleted_at IS NULL`, appleEmail).Scan(&owner); err == nil && owner != userID {
+			return errors.New("apple email belongs to another account")
+		}
+	}
+	_, err = s.db.Exec(ctx, `UPDATE users SET apple_subject=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, userID, sub)
+	return err
+}
+
+func (s *Service) UnlinkApple(ctx context.Context, userID uuid.UUID) error {
+	var password *string
+	if err := s.db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id=$1 AND deleted_at IS NULL`, userID).Scan(&password); err != nil || password == nil || *password == "" {
+		return errors.New("password login required before unlink")
+	}
+	_, err := s.db.Exec(ctx, `UPDATE users SET apple_subject=NULL,updated_at=NOW() WHERE id=$1`, userID)
+	return err
 }
 func (s *Service) Register(ctx context.Context, email, password, name string) (User, string, string, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
