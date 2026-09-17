@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U k12edu -d k12edu"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
   api:
     build: .
     ports:
@@ -20,7 +25,8 @@ services:
       K12EDU_ADMIN_EMAIL: admin@example.com
       K12EDU_ADMIN_PASSWORD: change-this-password
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:
