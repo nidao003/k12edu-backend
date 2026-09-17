@@ -2,6 +2,8 @@ package admin
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 )
@@ -74,4 +76,50 @@ func (h *Handler) AIUsage(c *gin.Context) {
 		out = append(out, gin.H{"model": model, "calls": calls, "inputBytes": inBytes, "outputBytes": outBytes})
 	}
 	c.JSON(200, gin.H{"items": out})
+}
+
+func (h *Handler) SetRole(c *gin.Context) {
+	id, e := uuid.Parse(c.Param("id"))
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var in struct {
+		Role string `json:"role"`
+	}
+	if c.ShouldBindJSON(&in) != nil || (in.Role != "student" && in.Role != "parent" && in.Role != "admin") {
+		c.JSON(400, gin.H{"error": "invalid role"})
+		return
+	}
+	tag, e := h.db.Exec(c, `UPDATE users SET role=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id, in.Role)
+	if e != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+	c.Status(204)
+}
+func (h *Handler) SetDisabled(c *gin.Context) {
+	id, e := uuid.Parse(c.Param("id"))
+	if e != nil {
+		c.JSON(400, gin.H{"error": "invalid id"})
+		return
+	}
+	var in struct {
+		Disabled bool `json:"disabled"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+	var tag pgconn.CommandTag
+	if in.Disabled {
+		tag, e = h.db.Exec(c, `UPDATE users SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1`, id)
+	} else {
+		tag, e = h.db.Exec(c, `UPDATE users SET deleted_at=NULL,updated_at=NOW() WHERE id=$1`, id)
+	}
+	if e != nil || tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+	c.Status(204)
 }
