@@ -41,6 +41,7 @@ ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS retry_count INT NOT NULL DEFAUL
 ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE sync_events ADD COLUMN IF NOT EXISTS field_timestamps JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_sync_events_user_created ON sync_events(user_id, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (
