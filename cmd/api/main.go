@@ -36,6 +36,7 @@ func main() {
 		if err := db.Migrate(ctx, pool); err != nil {
 			log.Fatal(err)
 		}
+		db.StartMaintenance(context.Background(), pool, cfg.RetentionDays)
 		authService = auth.NewService(pool, cfg.JWTSecret, cfg.AppleClientID)
 		mailer := mail.Sender{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom}
 		authService.SetMailer(mailer.Send)
