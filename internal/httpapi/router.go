@@ -110,6 +110,7 @@ func NewRouter(pool *pgxpool.Pool, authService *auth.Service, aiBaseURL, aiAPIKe
 
 	r.GET("/admin", func(c *gin.Context) { adminPage(c) })
 	r.GET("/admin/", func(c *gin.Context) { adminPage(c) })
+	r.Static("/admin/assets", "admin/dist/assets")
 
 	return r
 }
