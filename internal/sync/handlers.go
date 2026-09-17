@@ -25,6 +25,7 @@ type eventInput struct {
 	EventType       string          `json:"eventType" binding:"required"`
 	Payload         json.RawMessage `json:"payload"`
 	ClientCreatedAt time.Time       `json:"clientCreatedAt"`
+	DeletedAt       *time.Time      `json:"deletedAt"`
 }
 type deviceInput struct {
 	ID       string `json:"id"`
@@ -91,9 +92,9 @@ func (h *Handler) Events(c *gin.Context) {
 	after := c.Query("after")
 	var rows pgx.Rows
 	if after == "" {
-		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL ORDER BY created_at LIMIT 500`, uid)
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at,deleted_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL ORDER BY created_at LIMIT 500`, uid)
 	} else {
-		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL AND created_at>$2::timestamptz ORDER BY created_at LIMIT 500`, uid, after)
+		rows, err = h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at,deleted_at FROM sync_events WHERE user_id=$1 AND archived_at IS NULL AND created_at>$2::timestamptz ORDER BY created_at LIMIT 500`, uid, after)
 	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
@@ -107,11 +108,12 @@ func (h *Handler) Events(c *gin.Context) {
 		var typ string
 		var payload []byte
 		var client, created time.Time
-		if err := rows.Scan(&id, &device, &typ, &payload, &client, &created); err != nil {
+		var deleted *time.Time
+		if err := rows.Scan(&id, &device, &typ, &payload, &client, &created, &deleted); err != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created})
+		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created, "deletedAt": deleted})
 	}
 	c.JSON(200, gin.H{"events": out})
 }
@@ -146,7 +148,7 @@ func (h *Handler) ReplayEvents(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "from is required"})
 		return
 	}
-	rows, e := h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at FROM sync_events WHERE user_id=$1 AND created_at>=$2::timestamptz ORDER BY created_at LIMIT 5000`, uid, from)
+	rows, e := h.db.Query(c, `SELECT id,device_id,event_type,payload,client_created_at,created_at,deleted_at FROM sync_events WHERE user_id=$1 AND created_at>=$2::timestamptz ORDER BY created_at LIMIT 5000`, uid, from)
 	if e != nil {
 		c.JSON(500, gin.H{"error": "query failed"})
 		return
@@ -159,11 +161,12 @@ func (h *Handler) ReplayEvents(c *gin.Context) {
 		var typ string
 		var payload []byte
 		var client, created time.Time
-		if e := rows.Scan(&id, &device, &typ, &payload, &client, &created); e != nil {
+		var deleted *time.Time
+		if e := rows.Scan(&id, &device, &typ, &payload, &client, &created, &deleted); e != nil {
 			c.JSON(500, gin.H{"error": "scan failed"})
 			return
 		}
-		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created})
+		out = append(out, gin.H{"id": id, "deviceId": device, "eventType": typ, "payload": json.RawMessage(payload), "clientCreatedAt": client, "createdAt": created, "deletedAt": deleted})
 	}
 	c.JSON(200, gin.H{"events": out, "replay": true})
 }
@@ -240,7 +243,7 @@ func (h *Handler) AppendEvents(c *gin.Context) {
 		if created.IsZero() {
 			created = time.Now().UTC()
 		}
-		_, er = h.db.Exec(c, `INSERT INTO sync_events(id,user_id,device_id,event_type,payload,client_created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING`, id, uid, device, e.EventType, e.Payload, created)
+		_, er = h.db.Exec(c, `INSERT INTO sync_events(id,user_id,device_id,event_type,payload,client_created_at,deleted_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING`, id, uid, device, e.EventType, e.Payload, created, e.DeletedAt)
 		if er == nil {
 			accepted++
 		} else {
