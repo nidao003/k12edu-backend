@@ -87,6 +87,18 @@ func (h *Handler) withinCostLimit(c *gin.Context, uid uuid.UUID) bool {
 	return spent < int64(h.monthlyCostLimit)
 }
 
+func (h *Handler) withinBalance(c *gin.Context, uid uuid.UUID, bodySize int) bool {
+	if h.db == nil {
+		return true
+	}
+	var balance int64
+	if err := h.db.QueryRow(c, `SELECT balance_micros FROM ai_wallets WHERE user_id=$1`, uid).Scan(&balance); err != nil {
+		return true
+	}
+	minimum := int64((bodySize / 4) * h.inputCost / 1000)
+	return balance >= minimum
+}
+
 func (h *Handler) admit(c *gin.Context, uid uuid.UUID) bool {
 	if h.db == nil || h.monthlyQuota <= 0 {
 		return true
@@ -223,6 +235,10 @@ func (h *Handler) Chat(c *gin.Context) {
 		return
 	}
 	body = redactPII(body)
+	if !h.withinBalance(c, uid, len(body)) {
+		c.JSON(http.StatusPaymentRequired, gin.H{"code": "AI_BALANCE_INSUFFICIENT", "error": "AI wallet balance is insufficient"})
+		return
+	}
 	if !h.safety(c, uid, body) {
 		c.JSON(http.StatusForbidden, gin.H{"code": "AI_SAFETY_BLOCKED", "error": "request blocked by safety review"})
 		return
