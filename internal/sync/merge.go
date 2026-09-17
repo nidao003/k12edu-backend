@@ -8,9 +8,11 @@ import (
 )
 
 type mergeInput struct {
-	Base   json.RawMessage `json:"base"`
-	Local  json.RawMessage `json:"local"`
-	Remote json.RawMessage `json:"remote"`
+	Base                  json.RawMessage  `json:"base"`
+	Local                 json.RawMessage  `json:"local"`
+	Remote                json.RawMessage  `json:"remote"`
+	LocalFieldTimestamps  map[string]int64 `json:"localFieldTimestamps"`
+	RemoteFieldTimestamps map[string]int64 `json:"remoteFieldTimestamps"`
 }
 
 func equalJSON(a, b any) bool {
@@ -115,6 +117,33 @@ func mergeField(name string, base, local, remote any) any {
 	}
 	return local
 }
+
+func mergeWithTimestamps(base, local, remote any, localTS, remoteTS map[string]int64) any {
+	lm, lok := local.(map[string]any)
+	rm, rok := remote.(map[string]any)
+	if !lok || !rok {
+		return mergeField("", base, local, remote)
+	}
+	bm, _ := base.(map[string]any)
+	out := map[string]any{}
+	for k, v := range rm {
+		out[k] = v
+	}
+	for k, v := range lm {
+		bv := any(nil)
+		if bm != nil {
+			bv = bm[k]
+		}
+		if !equalJSON(v, rm[k]) && !equalJSON(v, bv) && !equalJSON(rm[k], bv) {
+			if remoteTS[k] > localTS[k] {
+				out[k] = rm[k]
+				continue
+			}
+		}
+		out[k] = mergeField(k, bv, v, rm[k])
+	}
+	return out
+}
 func (h *Handler) Merge(c *gin.Context) {
 	var in mergeInput
 	if c.ShouldBindJSON(&in) != nil || !json.Valid(in.Base) || !json.Valid(in.Local) || !json.Valid(in.Remote) {
@@ -125,6 +154,7 @@ func (h *Handler) Merge(c *gin.Context) {
 	_ = json.Unmarshal(in.Base, &b)
 	_ = json.Unmarshal(in.Local, &l)
 	_ = json.Unmarshal(in.Remote, &r)
-	out, _ := json.Marshal(mergeField("", b, l, r))
-	c.JSON(200, gin.H{"payload": json.RawMessage(out), "strategy": "three-way-field-merge", "tombstone": "deletedAt"})
+	merged := mergeWithTimestamps(b, l, r, in.LocalFieldTimestamps, in.RemoteFieldTimestamps)
+	out, _ := json.Marshal(merged)
+	c.JSON(200, gin.H{"payload": json.RawMessage(out), "strategy": "three-way-field-merge-with-timestamps", "tombstone": "deletedAt"})
 }
